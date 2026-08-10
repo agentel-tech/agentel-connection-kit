@@ -1,0 +1,9 @@
+{
+  "name": "@agentel/sdk",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./agentel-connector.ts"
+  }
+}
