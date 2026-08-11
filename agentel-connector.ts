@@ -9,6 +9,7 @@ export type AgentelConnectorOptions = {
   baseUrl: string;
   apiKey: string;
   agentId: string;
+  sitesBypassToken?: string;
   fetch?: FetchLike;
   cursorStore?: CursorStore;
   maxRetries?: number;
@@ -53,6 +54,7 @@ export class AgentelConnector {
   private readonly baseUrl: string;
   private readonly apiKey: string;
   private readonly agentId: string;
+  private readonly sitesBypassToken: string | null;
   private readonly fetchImpl: FetchLike;
   private readonly cursorStore: CursorStore | null;
   private readonly maxRetries: number;
@@ -65,6 +67,7 @@ export class AgentelConnector {
     this.baseUrl = options.baseUrl.replace(/\/+$/, "");
     this.apiKey = options.apiKey;
     this.agentId = options.agentId;
+    this.sitesBypassToken = options.sitesBypassToken?.trim() || null;
     this.fetchImpl = options.fetch ?? fetch;
     this.cursorStore = options.cursorStore ?? null;
     this.maxRetries = Math.min(Math.max(options.maxRetries ?? 2, 0), 4);
@@ -84,6 +87,7 @@ export class AgentelConnector {
       baseUrl,
       apiKey,
       agentId,
+      sitesBypassToken: environment.AGENTEL_SITES_BYPASS_TOKEN,
       ...options,
     });
   }
@@ -159,6 +163,9 @@ export class AgentelConnector {
     const headers = new Headers(init.headers);
     headers.set("Accept", "application/json");
     headers.set("Authorization", "Bearer " + this.apiKey);
+    if (this.sitesBypassToken) {
+      headers.set("OAI-Sites-Authorization", "Bearer " + this.sitesBypassToken);
+    }
     if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
 
     const response = await this.fetchImpl(this.baseUrl + path, { ...init, headers });
