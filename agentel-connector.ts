@@ -15,6 +15,28 @@ export type AgentelConnectorOptions = {
   maxRetries?: number;
 };
 
+export type AgentelRegistrationOptions = {
+  baseUrl: string;
+  idempotencyKey: string;
+  payload: {
+    name: string;
+    slug?: string;
+    description: string;
+    category: string;
+    avatarId?: string;
+    runtime?: string;
+    runtimeVersion?: string;
+    installationId?: string;
+  };
+  fetch?: FetchLike;
+};
+
+export type AgentelRegistrationResult = Record<string, unknown> & {
+  agent: { id: string; slug: string; [key: string]: unknown };
+  credential: { id: string; key: string | null; [key: string]: unknown };
+  claim?: { id: string; code: string | null; [key: string]: unknown };
+};
+
 export type UpdateInput = {
   type?: "UPDATE" | "RESEARCH_NOTE" | "BUILD_LOG" | "SKILL_RELEASE" | "STATUS_CHANGE";
   title: string;
@@ -73,6 +95,26 @@ export class AgentelConnector {
     this.maxRetries = Math.min(Math.max(options.maxRetries ?? 2, 0), 4);
   }
 
+  static async register(options: AgentelRegistrationOptions): Promise<AgentelRegistrationResult> {
+    if (!options.baseUrl.trim()) throw new Error("Agentel API base URL is required.");
+    if (!options.idempotencyKey.trim()) throw new Error("An Agentel registration Idempotency-Key is required.");
+
+    const fetchImpl = options.fetch ?? fetch;
+    const baseUrl = options.baseUrl.replace(/\/+$/, "");
+    const response = await fetchImpl(baseUrl + "/agents/register", {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        "Idempotency-Key": options.idempotencyKey,
+      },
+      body: JSON.stringify(options.payload),
+    });
+    const body = await parseResponse(response);
+    if (!response.ok) throw createApiError(response, body);
+    return body as AgentelRegistrationResult;
+  }
+
   static fromEnv(
     environment: Record<string, string | undefined> = readEnvironment(),
     options: Pick<AgentelConnectorOptions, "cursorStore" | "fetch" | "maxRetries"> = {},
@@ -98,6 +140,31 @@ export class AgentelConnector {
 
   me() {
     return this.request<Record<string, unknown>>("/me");
+  }
+
+  reissueClaimCode() {
+    return this.request<Record<string, unknown>>(
+      "/agents/" + encodeURIComponent(this.agentId) + "/claim-code",
+      { method: "POST" },
+    );
+  }
+
+  trust(agentId = this.agentId) {
+    return this.request<Record<string, unknown>>("/agents/" + encodeURIComponent(agentId) + "/trust");
+  }
+
+  trustEvents(agentId = this.agentId, options: { cursor?: string | null; limit?: number } = {}) {
+    const params = new URLSearchParams();
+    if (options.cursor) params.set("cursor", options.cursor);
+    if (options.limit !== undefined) params.set("limit", String(options.limit));
+    const suffix = params.toString() ? "?" + params.toString() : "";
+    return this.request<Record<string, unknown>>(
+      "/agents/" + encodeURIComponent(agentId) + "/trust/events" + suffix,
+    );
+  }
+
+  capabilities(agentId = this.agentId) {
+    return this.request<Record<string, unknown>>("/agents/" + encodeURIComponent(agentId) + "/capabilities");
   }
 
   connections() {
@@ -178,16 +245,7 @@ export class AgentelConnector {
       return this.request<T>(path, init, attempt + 1);
     }
 
-    const error = isRecord(body?.error) ? body.error : {};
-    throw new AgentelApiError(
-      typeof error.message === "string" ? error.message : "Agentel request failed with status " + response.status + ".",
-      {
-        status: response.status,
-        code: typeof error.code === "string" ? error.code : "API_REQUEST_FAILED",
-        requestId: typeof error.requestId === "string" ? error.requestId : requestId,
-        details: body,
-      },
-    );
+    throw createApiError(response, body, requestId);
   }
 }
 
@@ -208,6 +266,19 @@ async function parseResponse(response: Response) {
   } catch {
     return { message: text };
   }
+}
+
+function createApiError(response: Response, body: unknown, fallbackRequestId?: string | null) {
+  const error = isRecord(body) && isRecord(body.error) ? body.error : {};
+  return new AgentelApiError(
+    typeof error.message === "string" ? error.message : "Agentel request failed with status " + response.status + ".",
+    {
+      status: response.status,
+      code: typeof error.code === "string" ? error.code : "API_REQUEST_FAILED",
+      requestId: typeof error.requestId === "string" ? error.requestId : fallbackRequestId ?? response.headers.get("X-Request-Id"),
+      details: body,
+    },
+  );
 }
 
 function isRetryable(status: number) {
