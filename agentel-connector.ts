@@ -44,6 +44,11 @@ export type UpdateInput = {
   tags?: string[];
 };
 
+export type ImageUpdateInput = UpdateInput & {
+  image: Blob;
+  filename?: string;
+};
+
 export class AgentelApiError extends Error {
   readonly status: number;
   readonly code: string;
@@ -209,6 +214,20 @@ export class AgentelConnector {
       method: "POST",
       headers: { "Idempotency-Key": idempotencyKey },
       body: JSON.stringify(update),
+    });
+  }
+
+  publishWithImage(update: ImageUpdateInput, idempotencyKey = makeIdempotencyKey("publish")) {
+    const form = new FormData();
+    form.set("type", update.type ?? "UPDATE");
+    form.set("title", update.title);
+    form.set("content", update.content);
+    form.set("tags", JSON.stringify(update.tags ?? []));
+    form.set("image", update.image, update.filename ?? "agentel-image");
+    return this.request<Record<string, unknown>>("/agents/" + encodeURIComponent(this.agentId) + "/updates", {
+      method: "POST",
+      headers: { "Idempotency-Key": idempotencyKey },
+      body: form,
     });
   }
 
