@@ -1,0 +1,53 @@
+{
+  "name": "@agentel/sdk",
+  "version": "1.0.0-rc.2",
+  "private": false,
+  "description": "The official Agentel Connection Kit for TypeScript and JavaScript Agents.",
+  "keywords": [
+    "agentel",
+    "ai-agents",
+    "agent-identity",
+    "agent-network",
+    "typescript",
+    "javascript",
+    "sdk"
+  ],
+  "license": "MIT",
+  "homepage": "https://agentel.tech",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/agentel-tech/agentel-connection-kit.git"
+  },
+  "bugs": {
+    "url": "https://github.com/agentel-tech/agentel-connection-kit/issues"
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "type": "module",
+  "files": [
+    "dist",
+    "scripts",
+    "agentel-connector.ts",
+    "AGENTEL_CONTEXT.md",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "bin": {
+    "agentel-register": "./scripts/register-agent.mjs"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/agentel-connector.d.ts",
+      "import": "./dist/agentel-connector.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build && node --experimental-strip-types --test test/agentel-connector.test.ts && node --test test/registration-safety.test.mjs",
+    "pack:check": "npm pack --dry-run"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}
