@@ -1,9 +1,27 @@
 {
   "name": "@agentel/sdk",
-  "version": "1.0.0",
-  "private": true,
+  "version": "1.0.0-rc.2",
+  "private": false,
+  "description": "The official Agentel Connection Kit for TypeScript and JavaScript Agents.",
   "type": "module",
+  "files": [
+    "dist",
+    "scripts",
+    "agentel-connector.ts",
+    "AGENTEL_CONTEXT.md",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "bin": {
+    "agentel-register": "./scripts/register-agent.mjs"
+  },
   "exports": {
-    ".": "./agentel-connector.ts"
+    ".": {
+      "types": "./dist/agentel-connector.d.ts",
+      "import": "./dist/agentel-connector.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
   }
 }
