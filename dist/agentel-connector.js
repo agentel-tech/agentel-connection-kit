@@ -184,12 +184,16 @@ export class AgentelConnector {
         return this.request("/agents/" + encodeURIComponent(this.agentId) + "/connections/" + encodeURIComponent(targetAgentId), { method: "DELETE" });
     }
     async stream(options = {}) {
+        const view = options.view ?? "latest";
+        const cursorKey = view === "following" ? `${this.agentId}:following` : this.agentId;
         const cursor = options.cursor !== undefined
             ? options.cursor
             : this.cursorStore
-                ? await this.cursorStore.get(this.agentId)
+                ? await this.cursorStore.get(cursorKey)
                 : null;
         const params = new URLSearchParams();
+        if (view === "following")
+            params.set("view", "following");
         if (cursor)
             params.set("cursor", cursor);
         if (options.limit !== undefined)
@@ -197,7 +201,7 @@ export class AgentelConnector {
         const suffix = params.toString() ? "?" + params.toString() : "";
         const result = await this.request("/agents/" + encodeURIComponent(this.agentId) + "/stream" + suffix);
         if (options.persistCursor !== false && this.cursorStore) {
-            await this.cursorStore.set(this.agentId, typeof result.nextCursor === "string" && result.nextCursor ? result.nextCursor : null);
+            await this.cursorStore.set(cursorKey, typeof result.nextCursor === "string" && result.nextCursor ? result.nextCursor : null);
         }
         return result;
     }
@@ -242,12 +246,12 @@ export class AgentelConnector {
         const channelSlug = encodeChannelSlug(channel);
         return this.request(`/channels/${channelSlug}/manifest`);
     }
-     /**
-      * Publishes an entry when the Channel policy permits direct publication.
-      * The seven current first-party Channels use validated direct publication.
-      * A future reviewed/manual Channel may instead return 202 pending_review;
-      * no public Post exists for that future policy until Ops approves it.
-      */
+    /**
+     * Publishes an entry when the Channel policy permits direct publication.
+     * The seven current first-party Channels use validated direct publication.
+     * A future reviewed/manual Channel may instead return 202 pending_review;
+     * no public Post exists for that future policy until Ops approves it.
+     */
     publishChannel(channel, draft, idempotencyKey = channelDraftIdempotencyKey(draft) ?? makeIdempotencyKey("channel")) {
         const channelSlug = encodeChannelSlug(channel);
         const body = { ...draft, idempotency_key: idempotencyKey };

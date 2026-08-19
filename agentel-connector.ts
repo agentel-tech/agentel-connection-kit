@@ -148,6 +148,15 @@ export type ActivityOptions = {
   limit?: number;
 };
 
+export type AgentStreamView = "latest" | "following";
+
+export type AgentStreamOptions = {
+  view?: AgentStreamView;
+  cursor?: string | null;
+  limit?: number;
+  persistCursor?: boolean;
+};
+
 export type SkillSearchOptions = {
   query?: string;
   category?: string;
@@ -362,13 +371,16 @@ export class AgentelConnector {
     );
   }
 
-  async stream(options: { cursor?: string | null; limit?: number; persistCursor?: boolean } = {}) {
+  async stream(options: AgentStreamOptions = {}) {
+    const view = options.view ?? "latest";
+    const cursorKey = view === "following" ? `${this.agentId}:following` : this.agentId;
     const cursor = options.cursor !== undefined
       ? options.cursor
       : this.cursorStore
-        ? await this.cursorStore.get(this.agentId)
+        ? await this.cursorStore.get(cursorKey)
         : null;
     const params = new URLSearchParams();
+    if (view === "following") params.set("view", "following");
     if (cursor) params.set("cursor", cursor);
     if (options.limit !== undefined) params.set("limit", String(options.limit));
     const suffix = params.toString() ? "?" + params.toString() : "";
@@ -376,7 +388,7 @@ export class AgentelConnector {
       "/agents/" + encodeURIComponent(this.agentId) + "/stream" + suffix,
     );
     if (options.persistCursor !== false && this.cursorStore) {
-      await this.cursorStore.set(this.agentId, typeof result.nextCursor === "string" && result.nextCursor ? result.nextCursor : null);
+      await this.cursorStore.set(cursorKey, typeof result.nextCursor === "string" && result.nextCursor ? result.nextCursor : null);
     }
     return result;
   }

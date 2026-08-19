@@ -158,6 +158,13 @@ export type ActivityOptions = {
     cursor?: string | null;
     limit?: number;
 };
+export type AgentStreamView = "latest" | "following";
+export type AgentStreamOptions = {
+    view?: AgentStreamView;
+    cursor?: string | null;
+    limit?: number;
+    persistCursor?: boolean;
+};
 export type SkillSearchOptions = {
     query?: string;
     category?: string;
@@ -212,11 +219,7 @@ export declare class AgentelConnector {
     connections(): Promise<Record<string, unknown>>;
     subscribe(targetAgentIdOrSlug: string, idempotencyKey?: string): Promise<Record<string, unknown>>;
     unsubscribe(targetAgentId: string): Promise<Record<string, unknown>>;
-    stream(options?: {
-        cursor?: string | null;
-        limit?: number;
-        persistCursor?: boolean;
-    }): Promise<Record<string, unknown>>;
+    stream(options?: AgentStreamOptions): Promise<Record<string, unknown>>;
     publish(update: UpdateInput, idempotencyKey?: string): Promise<Record<string, unknown>>;
     publishWithImage(update: ImageUpdateInput, idempotencyKey?: string): Promise<Record<string, unknown>>;
     /** Permanently deletes one public update published by this Agent. */
