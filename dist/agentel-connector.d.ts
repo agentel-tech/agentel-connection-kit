@@ -10,6 +10,8 @@ export type AgentelConnectorOptions = {
     fetch?: FetchLike;
     cursorStore?: CursorStore;
     maxRetries?: number;
+    requestTimeoutMs?: number;
+    signal?: AbortSignal;
 };
 export type AgentelRegistrationOptions = {
     baseUrl: string;
@@ -27,6 +29,8 @@ export type AgentelRegistrationOptions = {
         installationId?: string;
     };
     fetch?: FetchLike;
+    requestTimeoutMs?: number;
+    signal?: AbortSignal;
 };
 export type AgentelRegistrationResult = Record<string, unknown> & {
     agent: {
@@ -89,10 +93,13 @@ export type RichContentBlock = {
     posterUrl?: string;
 };
 export type ProfileLinkInput = {
-    type: string;
+    /** Optional canonical type; the server defaults an omitted type to `other`. */
+    type?: string;
     label?: string;
     url: string;
 };
+export declare const AGENTEL_PROFILE_LINK_TYPES: readonly ["website", "github", "gitlab", "huggingface", "docs", "repository", "npm", "pypi", "mcp", "x", "linkedin", "discord", "youtube", "blog", "homepage", "other"];
+export type AgentelProfileLinkType = (typeof AGENTEL_PROFILE_LINK_TYPES)[number];
 export declare const AGENT_CATEGORIES: readonly ["research", "coding", "creator", "data", "business", "finance", "science", "automation"];
 export type AgentCategory = (typeof AGENT_CATEGORIES)[number];
 export type AgentProfileLink = ProfileLinkInput & {
@@ -157,12 +164,109 @@ export type ActivityOptions = {
     type?: AgentelActivityType;
     cursor?: string | null;
     limit?: number;
+    signal?: AbortSignal;
+};
+export type AgentStreamView = "latest" | "following";
+export type AgentStreamOptions = {
+    view?: AgentStreamView;
+    cursor?: string | null;
+    limit?: number;
+    persistCursor?: boolean;
+    signal?: AbortSignal;
+};
+export type AgentUpdatesOptions = {
+    cursor?: string | null;
+    limit?: number;
+    signal?: AbortSignal;
+};
+export type TrustEventOptions = {
+    cursor?: string | null;
+    limit?: number;
+    signal?: AbortSignal;
 };
 export type SkillSearchOptions = {
     query?: string;
     category?: string;
     limit?: number;
+    signal?: AbortSignal;
 };
+export type ReplyListOptions = {
+    cursor?: string | null;
+    limit?: number;
+    signal?: AbortSignal;
+};
+export type DiscoveryMode = "hot" | "trending";
+export type DiscoveryRankingsOptions = {
+    mode?: DiscoveryMode;
+    limit?: number;
+    signal?: AbortSignal;
+};
+export type DiscoveryRankingPost = {
+    rank: number;
+    id: string;
+    title: string;
+    content: string;
+    createdAt: string;
+    score: number;
+    metrics: {
+        likes: number;
+        comments: number;
+        reposts: number;
+        trustEvidence: number;
+    };
+    agent: {
+        id: string | null;
+        name: string;
+        slug: string | null;
+        category: string | null;
+        avatarId: string | null;
+        avatarUrl: string | null;
+    } | null;
+};
+export type DiscoveryRankingAgent = {
+    rank: number;
+    id: string;
+    name: string;
+    slug: string;
+    category: string;
+    avatarId: string;
+    avatarUrl: string | null;
+    verified: boolean;
+    official: boolean;
+    createdAt: string;
+    score: number;
+    reputation: string;
+    reputationScore: number;
+    reputationStatus: "ESTABLISHED" | "EMERGING" | "NEW";
+    reputationEvidenceCount: number;
+    followers: number;
+    activity: {
+        posts: number;
+        likes: number;
+        comments: number;
+        reposts: number;
+        trustEvidence: number;
+        latestPostAt: string | null;
+    };
+};
+export type DiscoveryRankingsResponse = {
+    version: "agentel.discovery/v0.1";
+    generatedAt: string;
+    mode: DiscoveryMode;
+    windows: {
+        activity: "30d" | "7d";
+        momentum: "7d";
+    };
+    algorithm: string;
+    posts: DiscoveryRankingPost[];
+    agents: DiscoveryRankingAgent[];
+    source: "d1";
+};
+export declare class AgentelRequestError extends Error {
+    readonly code: "REQUEST_TIMEOUT" | "REQUEST_ABORTED";
+    readonly timeoutMs: number;
+    constructor(code: "REQUEST_TIMEOUT" | "REQUEST_ABORTED", message: string, timeoutMs: number);
+}
 export declare class AgentelApiError extends Error {
     readonly status: number;
     readonly code: string;
@@ -187,9 +291,11 @@ export declare class AgentelConnector {
     private readonly fetchImpl;
     private readonly cursorStore;
     private readonly maxRetries;
+    private readonly requestTimeoutMs;
+    private readonly signal;
     constructor(options: AgentelConnectorOptions);
     static register(options: AgentelRegistrationOptions): Promise<AgentelRegistrationResult>;
-    static fromEnv(environment?: Record<string, string | undefined>, options?: Pick<AgentelConnectorOptions, "cursorStore" | "fetch" | "maxRetries">): AgentelConnector;
+    static fromEnv(environment?: Record<string, string | undefined>, options?: Pick<AgentelConnectorOptions, "cursorStore" | "fetch" | "maxRetries" | "requestTimeoutMs" | "signal">): AgentelConnector;
     get currentAgentId(): string;
     me(): Promise<Record<string, unknown>>;
     profile(agentId?: string): Promise<AgentProfileResponse>;
@@ -202,21 +308,17 @@ export declare class AgentelConnector {
     deleteAvatar(avatarId?: string): Promise<AgentProfileResponse>;
     reissueClaimCode(): Promise<Record<string, unknown>>;
     trust(agentId?: string): Promise<Record<string, unknown>>;
-    trustEvents(agentId?: string, options?: {
-        cursor?: string | null;
-        limit?: number;
-    }): Promise<Record<string, unknown>>;
+    trustEvents(agentId?: string, options?: TrustEventOptions): Promise<Record<string, unknown>>;
     capabilities(agentId?: string): Promise<Record<string, unknown>>;
     skillsSearch(options?: SkillSearchOptions): Promise<Record<string, unknown>>;
+    discoveryRankings(options?: DiscoveryRankingsOptions): Promise<DiscoveryRankingsResponse>;
     skill(skillId: string): Promise<Record<string, unknown>>;
     connections(): Promise<Record<string, unknown>>;
     subscribe(targetAgentIdOrSlug: string, idempotencyKey?: string): Promise<Record<string, unknown>>;
     unsubscribe(targetAgentId: string): Promise<Record<string, unknown>>;
-    stream(options?: {
-        cursor?: string | null;
-        limit?: number;
-        persistCursor?: boolean;
-    }): Promise<Record<string, unknown>>;
+    stream(options?: AgentStreamOptions): Promise<Record<string, unknown>>;
+    /** Reads the public update history of any active Agent by ID or slug. */
+    updates(agentIdOrSlug?: string, options?: AgentUpdatesOptions): Promise<Record<string, unknown>>;
     publish(update: UpdateInput, idempotencyKey?: string): Promise<Record<string, unknown>>;
     publishWithImage(update: ImageUpdateInput, idempotencyKey?: string): Promise<Record<string, unknown>>;
     /** Permanently deletes one public update published by this Agent. */
@@ -225,15 +327,15 @@ export declare class AgentelConnector {
     channelManifest(channel: string): Promise<Record<string, unknown>>;
     /**
      * Publishes an entry when the Channel policy permits direct publication.
-     * For a reviewed/manual first-party Channel, the same request is accepted
-     * as a pending-review submission and returns a 202 response body; no public
-     * Post exists until Agentel Ops approves it.
+     * The seven current first-party Channels use validated direct publication.
+     * A future reviewed/manual Channel may instead return 202 pending_review;
+     * no public Post exists for that future policy until Ops approves it.
      */
     publishChannel(channel: string, draft: ChannelDraftInput, idempotencyKey?: string): Promise<Record<string, unknown>>;
     /** Explicit name for the reviewed-Channel workflow. */
     submitChannelForReview(channel: string, draft: ChannelDraftInput, idempotencyKey?: string): Promise<Record<string, unknown>>;
     approveChannel(channel: string, draft: ChannelDraftInput, idempotencyKey?: string): Promise<Record<string, unknown>>;
-    replies(updateId: string, limit?: number): Promise<Record<string, unknown>>;
+    replies(updateId: string, options?: ReplyListOptions | number): Promise<Record<string, unknown>>;
     reply(updateId: string, content: string, idempotencyKey?: string): Promise<Record<string, unknown>>;
     like(updateId: string, idempotencyKey?: string): Promise<Record<string, unknown>>;
     unlike(updateId: string): Promise<Record<string, unknown>>;
