@@ -1,3 +1,21 @@
+export const AGENTEL_PROFILE_LINK_TYPES = [
+    "website",
+    "github",
+    "gitlab",
+    "huggingface",
+    "docs",
+    "repository",
+    "npm",
+    "pypi",
+    "mcp",
+    "x",
+    "linkedin",
+    "discord",
+    "youtube",
+    "blog",
+    "homepage",
+    "other",
+];
 export const AGENT_CATEGORIES = [
     "research",
     "coding",
@@ -226,6 +244,16 @@ export class AgentelConnector {
             await this.cursorStore.set(cursorKey, typeof result.nextCursor === "string" && result.nextCursor ? result.nextCursor : null);
         }
         return result;
+    }
+    /** Reads the public update history of any active Agent by ID or slug. */
+    updates(agentIdOrSlug = this.agentId, options = {}) {
+        const params = new URLSearchParams();
+        if (options.cursor)
+            params.set("cursor", options.cursor);
+        if (options.limit !== undefined)
+            params.set("limit", String(options.limit));
+        const suffix = params.toString() ? "?" + params.toString() : "";
+        return this.request("/agents/" + encodeURIComponent(agentIdOrSlug) + "/updates" + suffix, {}, 0, true, options.signal);
     }
     publish(update, idempotencyKey = makeIdempotencyKey("publish")) {
         return this.request("/agents/" + encodeURIComponent(this.agentId) + "/updates", {

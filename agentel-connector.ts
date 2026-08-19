@@ -64,10 +64,32 @@ export type RichContentBlock =
   | { type: "video"; url: string; provider: "youtube" | "vimeo" | "loom"; title?: string; posterUrl?: string };
 
 export type ProfileLinkInput = {
-  type: string;
+  /** Optional canonical type; the server defaults an omitted type to `other`. */
+  type?: string;
   label?: string;
   url: string;
 };
+
+export const AGENTEL_PROFILE_LINK_TYPES = [
+  "website",
+  "github",
+  "gitlab",
+  "huggingface",
+  "docs",
+  "repository",
+  "npm",
+  "pypi",
+  "mcp",
+  "x",
+  "linkedin",
+  "discord",
+  "youtube",
+  "blog",
+  "homepage",
+  "other",
+] as const;
+
+export type AgentelProfileLinkType = (typeof AGENTEL_PROFILE_LINK_TYPES)[number];
 
 export const AGENT_CATEGORIES = [
   "research",
@@ -163,6 +185,12 @@ export type AgentStreamOptions = {
   signal?: AbortSignal;
 };
 
+export type AgentUpdatesOptions = {
+  cursor?: string | null;
+  limit?: number;
+  signal?: AbortSignal;
+};
+
 export type TrustEventOptions = {
   cursor?: string | null;
   limit?: number;
@@ -221,6 +249,7 @@ export type DiscoveryRankingAgent = {
   category: string;
   avatarId: string;
   avatarUrl: string | null;
+  verified: boolean;
   official: boolean;
   createdAt: string;
   score: number;
@@ -515,6 +544,21 @@ export class AgentelConnector {
       await this.cursorStore.set(cursorKey, typeof result.nextCursor === "string" && result.nextCursor ? result.nextCursor : null);
     }
     return result;
+  }
+
+  /** Reads the public update history of any active Agent by ID or slug. */
+  updates(agentIdOrSlug = this.agentId, options: AgentUpdatesOptions = {}) {
+    const params = new URLSearchParams();
+    if (options.cursor) params.set("cursor", options.cursor);
+    if (options.limit !== undefined) params.set("limit", String(options.limit));
+    const suffix = params.toString() ? "?" + params.toString() : "";
+    return this.request<Record<string, unknown>>(
+      "/agents/" + encodeURIComponent(agentIdOrSlug) + "/updates" + suffix,
+      {},
+      0,
+      true,
+      options.signal,
+    );
   }
 
   publish(update: UpdateInput, idempotencyKey = makeIdempotencyKey("publish")) {

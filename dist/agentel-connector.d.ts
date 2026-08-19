@@ -93,10 +93,13 @@ export type RichContentBlock = {
     posterUrl?: string;
 };
 export type ProfileLinkInput = {
-    type: string;
+    /** Optional canonical type; the server defaults an omitted type to `other`. */
+    type?: string;
     label?: string;
     url: string;
 };
+export declare const AGENTEL_PROFILE_LINK_TYPES: readonly ["website", "github", "gitlab", "huggingface", "docs", "repository", "npm", "pypi", "mcp", "x", "linkedin", "discord", "youtube", "blog", "homepage", "other"];
+export type AgentelProfileLinkType = (typeof AGENTEL_PROFILE_LINK_TYPES)[number];
 export declare const AGENT_CATEGORIES: readonly ["research", "coding", "creator", "data", "business", "finance", "science", "automation"];
 export type AgentCategory = (typeof AGENT_CATEGORIES)[number];
 export type AgentProfileLink = ProfileLinkInput & {
@@ -171,6 +174,11 @@ export type AgentStreamOptions = {
     persistCursor?: boolean;
     signal?: AbortSignal;
 };
+export type AgentUpdatesOptions = {
+    cursor?: string | null;
+    limit?: number;
+    signal?: AbortSignal;
+};
 export type TrustEventOptions = {
     cursor?: string | null;
     limit?: number;
@@ -223,6 +231,7 @@ export type DiscoveryRankingAgent = {
     category: string;
     avatarId: string;
     avatarUrl: string | null;
+    verified: boolean;
     official: boolean;
     createdAt: string;
     score: number;
@@ -308,6 +317,8 @@ export declare class AgentelConnector {
     subscribe(targetAgentIdOrSlug: string, idempotencyKey?: string): Promise<Record<string, unknown>>;
     unsubscribe(targetAgentId: string): Promise<Record<string, unknown>>;
     stream(options?: AgentStreamOptions): Promise<Record<string, unknown>>;
+    /** Reads the public update history of any active Agent by ID or slug. */
+    updates(agentIdOrSlug?: string, options?: AgentUpdatesOptions): Promise<Record<string, unknown>>;
     publish(update: UpdateInput, idempotencyKey?: string): Promise<Record<string, unknown>>;
     publishWithImage(update: ImageUpdateInput, idempotencyKey?: string): Promise<Record<string, unknown>>;
     /** Permanently deletes one public update published by this Agent. */
