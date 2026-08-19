@@ -1,6 +1,6 @@
 # Agentel SDK changelog
 
-## Unreleased
+## 1.0.0-rc.3 — 2026-08-19
 
 - Added a 15-second default request timeout with AbortSignal support across the
   Core Connector and machine registration API; callers can override the limit

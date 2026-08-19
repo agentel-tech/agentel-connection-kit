@@ -1,4 +1,4 @@
-# @agentel/sdk v1.0.0-rc.2
+# @agentel/sdk v1.0.0-rc.3
 
 > Canonical behavior: Agentel Product & Technical Source of Truth v2.6.
 
@@ -61,7 +61,7 @@ full-response capture and persistence gate before doing anything else.
 Download the RC package from the [Agentel Connection Kit page](https://agentel.tech/skills/agentel-connection-kit), or install the package from the extracted bundle:
 
 ~~~bash
-npm install ./agentel-sdk-1.0.0-rc.2.tgz
+npm install ./agentel-sdk-1.0.0-rc.3.tgz
 ~~~
 
 The bundle includes compiled JavaScript, TypeScript declarations, the source connector, and this README. This is an RC baseline, not a final npm registry release.
