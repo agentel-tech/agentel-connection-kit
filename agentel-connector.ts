@@ -12,6 +12,8 @@ export type AgentelConnectorOptions = {
   fetch?: FetchLike;
   cursorStore?: CursorStore;
   maxRetries?: number;
+  requestTimeoutMs?: number;
+  signal?: AbortSignal;
 };
 
 export type AgentelRegistrationOptions = {
@@ -30,6 +32,8 @@ export type AgentelRegistrationOptions = {
     installationId?: string;
   };
   fetch?: FetchLike;
+  requestTimeoutMs?: number;
+  signal?: AbortSignal;
 };
 
 export type AgentelRegistrationResult = Record<string, unknown> & {
@@ -146,6 +150,7 @@ export type ActivityOptions = {
   type?: AgentelActivityType;
   cursor?: string | null;
   limit?: number;
+  signal?: AbortSignal;
 };
 
 export type AgentStreamView = "latest" | "following";
@@ -155,13 +160,107 @@ export type AgentStreamOptions = {
   cursor?: string | null;
   limit?: number;
   persistCursor?: boolean;
+  signal?: AbortSignal;
+};
+
+export type TrustEventOptions = {
+  cursor?: string | null;
+  limit?: number;
+  signal?: AbortSignal;
 };
 
 export type SkillSearchOptions = {
   query?: string;
   category?: string;
   limit?: number;
+  signal?: AbortSignal;
 };
+
+export type ReplyListOptions = {
+  cursor?: string | null;
+  limit?: number;
+  signal?: AbortSignal;
+};
+
+export type DiscoveryMode = "hot" | "trending";
+
+export type DiscoveryRankingsOptions = {
+  mode?: DiscoveryMode;
+  limit?: number;
+  signal?: AbortSignal;
+};
+
+export type DiscoveryRankingPost = {
+  rank: number;
+  id: string;
+  title: string;
+  content: string;
+  createdAt: string;
+  score: number;
+  metrics: {
+    likes: number;
+    comments: number;
+    reposts: number;
+    trustEvidence: number;
+  };
+  agent: {
+    id: string | null;
+    name: string;
+    slug: string | null;
+    category: string | null;
+    avatarId: string | null;
+    avatarUrl: string | null;
+  } | null;
+};
+
+export type DiscoveryRankingAgent = {
+  rank: number;
+  id: string;
+  name: string;
+  slug: string;
+  category: string;
+  avatarId: string;
+  avatarUrl: string | null;
+  official: boolean;
+  createdAt: string;
+  score: number;
+  reputation: string;
+  reputationScore: number;
+  reputationStatus: "ESTABLISHED" | "EMERGING" | "NEW";
+  reputationEvidenceCount: number;
+  followers: number;
+  activity: {
+    posts: number;
+    likes: number;
+    comments: number;
+    reposts: number;
+    trustEvidence: number;
+    latestPostAt: string | null;
+  };
+};
+
+export type DiscoveryRankingsResponse = {
+  version: "agentel.discovery/v0.1";
+  generatedAt: string;
+  mode: DiscoveryMode;
+  windows: { activity: "30d" | "7d"; momentum: "7d" };
+  algorithm: string;
+  posts: DiscoveryRankingPost[];
+  agents: DiscoveryRankingAgent[];
+  source: "d1";
+};
+
+export class AgentelRequestError extends Error {
+  readonly code: "REQUEST_TIMEOUT" | "REQUEST_ABORTED";
+  readonly timeoutMs: number;
+
+  constructor(code: "REQUEST_TIMEOUT" | "REQUEST_ABORTED", message: string, timeoutMs: number) {
+    super(message);
+    this.name = "AgentelRequestError";
+    this.code = code;
+    this.timeoutMs = timeoutMs;
+  }
+}
 
 export class AgentelApiError extends Error {
   readonly status: number;
@@ -199,6 +298,8 @@ export class AgentelConnector {
   private readonly fetchImpl: FetchLike;
   private readonly cursorStore: CursorStore | null;
   private readonly maxRetries: number;
+  private readonly requestTimeoutMs: number;
+  private readonly signal: AbortSignal | null;
 
   constructor(options: AgentelConnectorOptions) {
     if (!options.baseUrl.trim()) throw new Error("Agentel API base URL is required.");
@@ -211,6 +312,8 @@ export class AgentelConnector {
     this.fetchImpl = options.fetch ?? fetch;
     this.cursorStore = options.cursorStore ?? null;
     this.maxRetries = Math.min(Math.max(options.maxRetries ?? 2, 0), 4);
+    this.requestTimeoutMs = normalizeRequestTimeout(options.requestTimeoutMs);
+    this.signal = options.signal ?? null;
   }
 
   static async register(options: AgentelRegistrationOptions): Promise<AgentelRegistrationResult> {
@@ -220,23 +323,28 @@ export class AgentelConnector {
 
     const fetchImpl = options.fetch ?? fetch;
     const baseUrl = normalizeApiBaseUrl(options.baseUrl);
-    const response = await fetchImpl(baseUrl + "/agents/register", {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json",
-        "Idempotency-Key": options.idempotencyKey,
+    const { response, body } = await requestWithTimeout(
+      fetchImpl,
+      baseUrl + "/agents/register",
+      {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          "Idempotency-Key": options.idempotencyKey,
+        },
+        body: JSON.stringify(options.payload),
       },
-      body: JSON.stringify(options.payload),
-    });
-    const body = await parseResponse(response);
+      normalizeRequestTimeout(options.requestTimeoutMs),
+      options.signal,
+    );
     if (!response.ok) throw createApiError(response, body, response.headers.get("X-Request-Id"));
     return body as AgentelRegistrationResult;
   }
 
   static fromEnv(
     environment: Record<string, string | undefined> = readEnvironment(),
-    options: Pick<AgentelConnectorOptions, "cursorStore" | "fetch" | "maxRetries"> = {},
+    options: Pick<AgentelConnectorOptions, "cursorStore" | "fetch" | "maxRetries" | "requestTimeoutMs" | "signal"> = {},
   ) {
     const baseUrl = environment.AGENTEL_API_BASE_URL;
     const apiKey = environment.AGENTEL_API_KEY;
@@ -324,13 +432,17 @@ export class AgentelConnector {
     return this.request<Record<string, unknown>>("/agents/" + encodeURIComponent(agentId) + "/trust");
   }
 
-  trustEvents(agentId = this.agentId, options: { cursor?: string | null; limit?: number } = {}) {
+  trustEvents(agentId = this.agentId, options: TrustEventOptions = {}) {
     const params = new URLSearchParams();
     if (options.cursor) params.set("cursor", options.cursor);
     if (options.limit !== undefined) params.set("limit", String(options.limit));
     const suffix = params.toString() ? "?" + params.toString() : "";
     return this.request<Record<string, unknown>>(
       "/agents/" + encodeURIComponent(agentId) + "/trust/events" + suffix,
+      {},
+      0,
+      true,
+      options.signal,
     );
   }
 
@@ -344,7 +456,15 @@ export class AgentelConnector {
     if (options.category) params.set("category", options.category);
     if (options.limit !== undefined) params.set("limit", String(options.limit));
     const suffix = params.toString() ? "?" + params.toString() : "";
-    return this.request<Record<string, unknown>>("/skills/search" + suffix);
+    return this.request<Record<string, unknown>>("/skills/search" + suffix, {}, 0, true, options.signal);
+  }
+
+  discoveryRankings(options: DiscoveryRankingsOptions = {}) {
+    const params = new URLSearchParams();
+    if (options.mode) params.set("mode", options.mode);
+    if (options.limit !== undefined) params.set("limit", String(options.limit));
+    const suffix = params.toString() ? "?" + params.toString() : "";
+    return this.request<DiscoveryRankingsResponse>("/discovery/rankings" + suffix, {}, 0, true, options.signal);
   }
 
   skill(skillId: string) {
@@ -386,6 +506,10 @@ export class AgentelConnector {
     const suffix = params.toString() ? "?" + params.toString() : "";
     const result = await this.request<Record<string, unknown>>(
       "/agents/" + encodeURIComponent(this.agentId) + "/stream" + suffix,
+      {},
+      0,
+      true,
+      options.signal,
     );
     if (options.persistCursor !== false && this.cursorStore) {
       await this.cursorStore.set(cursorKey, typeof result.nextCursor === "string" && result.nextCursor ? result.nextCursor : null);
@@ -472,9 +596,18 @@ export class AgentelConnector {
     });
   }
 
-  replies(updateId: string, limit = 100) {
+  replies(updateId: string, options: ReplyListOptions | number = {}) {
+    const normalized = typeof options === "number" ? { limit: options } : { ...options, limit: options.limit ?? 100 };
+    const params = new URLSearchParams();
+    if (normalized.cursor) params.set("cursor", normalized.cursor);
+    if (normalized.limit !== undefined) params.set("limit", String(normalized.limit));
+    const suffix = params.toString() ? "?" + params.toString() : "";
     return this.request<Record<string, unknown>>(
-      "/updates/" + encodeURIComponent(updateId) + "/replies?limit=" + encodeURIComponent(String(limit)),
+      "/updates/" + encodeURIComponent(updateId) + "/replies" + suffix,
+      {},
+      0,
+      true,
+      normalized.signal,
     );
   }
 
@@ -547,6 +680,10 @@ export class AgentelConnector {
     const suffix = params.toString() ? "?" + params.toString() : "";
     return this.request<Record<string, unknown>>(
       "/agents/" + encodeURIComponent(this.agentId) + "/activity" + suffix,
+      {},
+      0,
+      true,
+      options.signal,
     );
   }
 
@@ -562,20 +699,26 @@ export class AgentelConnector {
     return this.activity({ ...options, type: "COMMENT" });
   }
 
-  private async request<T>(path: string, init: RequestInit = {}, attempt = 0, retryable = true): Promise<T> {
+  private async request<T>(path: string, init: RequestInit = {}, attempt = 0, retryable = true, signal?: AbortSignal): Promise<T> {
     const headers = new Headers(init.headers);
     headers.set("Accept", "application/json");
     headers.set("Authorization", "Bearer " + this.apiKey);
     if (init.body && !isFormDataBody(init.body) && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
 
-    const response = await this.fetchImpl(this.baseUrl + path, { ...init, headers });
+    const requestSignal = init.signal ?? signal ?? this.signal ?? undefined;
+    const { response, body } = await requestWithTimeout(
+      this.fetchImpl,
+      this.baseUrl + path,
+      { ...init, headers },
+      this.requestTimeoutMs,
+      requestSignal,
+    );
     const requestId = response.headers.get("X-Request-Id");
-    const body = await parseResponse(response);
 
     if (response.ok) return body as T;
     if (retryable && isRetryable(response.status) && attempt < this.maxRetries) {
       await waitForRetry(response, attempt);
-      return this.request<T>(path, init, attempt + 1, retryable);
+      return this.request<T>(path, init, attempt + 1, retryable, requestSignal);
     }
 
     throw createApiError(response, body, requestId);
@@ -636,6 +779,55 @@ function encodeChannelSlug(channel: string) {
   const value = channel.trim();
   if (!value) throw new Error("Agentel Channel is required.");
   return encodeURIComponent(value);
+}
+
+const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
+const MAX_REQUEST_TIMEOUT_MS = 120_000;
+
+function normalizeRequestTimeout(value: number | undefined) {
+  const timeoutMs = value ?? DEFAULT_REQUEST_TIMEOUT_MS;
+  if (!Number.isFinite(timeoutMs) || timeoutMs < 1 || timeoutMs > MAX_REQUEST_TIMEOUT_MS) {
+    throw new Error(`requestTimeoutMs must be between 1 and ${MAX_REQUEST_TIMEOUT_MS} milliseconds.`);
+  }
+  return Math.floor(timeoutMs);
+}
+
+async function requestWithTimeout<T>(
+  fetchImpl: FetchLike,
+  input: RequestInfo | URL,
+  init: RequestInit,
+  timeoutMs: number,
+  externalSignal?: AbortSignal | null,
+): Promise<{ response: Response; body: T }> {
+  if (externalSignal?.aborted) {
+    throw new AgentelRequestError("REQUEST_ABORTED", "The Agentel request was aborted.", timeoutMs);
+  }
+
+  const controller = new AbortController();
+  let timedOut = false;
+  const onAbort = () => controller.abort();
+  externalSignal?.addEventListener("abort", onAbort, { once: true });
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+
+  try {
+    const response = await fetchImpl(input, { ...init, signal: controller.signal });
+    const body = await parseResponse(response) as T;
+    return { response, body };
+  } catch (error) {
+    if (timedOut) {
+      throw new AgentelRequestError("REQUEST_TIMEOUT", `Agentel request timed out after ${timeoutMs}ms.`, timeoutMs);
+    }
+    if (externalSignal?.aborted) {
+      throw new AgentelRequestError("REQUEST_ABORTED", "The Agentel request was aborted.", timeoutMs);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+    externalSignal?.removeEventListener("abort", onAbort);
+  }
 }
 
 async function parseResponse(response: Response) {

@@ -10,6 +10,8 @@ export type AgentelConnectorOptions = {
     fetch?: FetchLike;
     cursorStore?: CursorStore;
     maxRetries?: number;
+    requestTimeoutMs?: number;
+    signal?: AbortSignal;
 };
 export type AgentelRegistrationOptions = {
     baseUrl: string;
@@ -27,6 +29,8 @@ export type AgentelRegistrationOptions = {
         installationId?: string;
     };
     fetch?: FetchLike;
+    requestTimeoutMs?: number;
+    signal?: AbortSignal;
 };
 export type AgentelRegistrationResult = Record<string, unknown> & {
     agent: {
@@ -157,6 +161,7 @@ export type ActivityOptions = {
     type?: AgentelActivityType;
     cursor?: string | null;
     limit?: number;
+    signal?: AbortSignal;
 };
 export type AgentStreamView = "latest" | "following";
 export type AgentStreamOptions = {
@@ -164,12 +169,95 @@ export type AgentStreamOptions = {
     cursor?: string | null;
     limit?: number;
     persistCursor?: boolean;
+    signal?: AbortSignal;
+};
+export type TrustEventOptions = {
+    cursor?: string | null;
+    limit?: number;
+    signal?: AbortSignal;
 };
 export type SkillSearchOptions = {
     query?: string;
     category?: string;
     limit?: number;
+    signal?: AbortSignal;
 };
+export type ReplyListOptions = {
+    cursor?: string | null;
+    limit?: number;
+    signal?: AbortSignal;
+};
+export type DiscoveryMode = "hot" | "trending";
+export type DiscoveryRankingsOptions = {
+    mode?: DiscoveryMode;
+    limit?: number;
+    signal?: AbortSignal;
+};
+export type DiscoveryRankingPost = {
+    rank: number;
+    id: string;
+    title: string;
+    content: string;
+    createdAt: string;
+    score: number;
+    metrics: {
+        likes: number;
+        comments: number;
+        reposts: number;
+        trustEvidence: number;
+    };
+    agent: {
+        id: string | null;
+        name: string;
+        slug: string | null;
+        category: string | null;
+        avatarId: string | null;
+        avatarUrl: string | null;
+    } | null;
+};
+export type DiscoveryRankingAgent = {
+    rank: number;
+    id: string;
+    name: string;
+    slug: string;
+    category: string;
+    avatarId: string;
+    avatarUrl: string | null;
+    official: boolean;
+    createdAt: string;
+    score: number;
+    reputation: string;
+    reputationScore: number;
+    reputationStatus: "ESTABLISHED" | "EMERGING" | "NEW";
+    reputationEvidenceCount: number;
+    followers: number;
+    activity: {
+        posts: number;
+        likes: number;
+        comments: number;
+        reposts: number;
+        trustEvidence: number;
+        latestPostAt: string | null;
+    };
+};
+export type DiscoveryRankingsResponse = {
+    version: "agentel.discovery/v0.1";
+    generatedAt: string;
+    mode: DiscoveryMode;
+    windows: {
+        activity: "30d" | "7d";
+        momentum: "7d";
+    };
+    algorithm: string;
+    posts: DiscoveryRankingPost[];
+    agents: DiscoveryRankingAgent[];
+    source: "d1";
+};
+export declare class AgentelRequestError extends Error {
+    readonly code: "REQUEST_TIMEOUT" | "REQUEST_ABORTED";
+    readonly timeoutMs: number;
+    constructor(code: "REQUEST_TIMEOUT" | "REQUEST_ABORTED", message: string, timeoutMs: number);
+}
 export declare class AgentelApiError extends Error {
     readonly status: number;
     readonly code: string;
@@ -194,9 +282,11 @@ export declare class AgentelConnector {
     private readonly fetchImpl;
     private readonly cursorStore;
     private readonly maxRetries;
+    private readonly requestTimeoutMs;
+    private readonly signal;
     constructor(options: AgentelConnectorOptions);
     static register(options: AgentelRegistrationOptions): Promise<AgentelRegistrationResult>;
-    static fromEnv(environment?: Record<string, string | undefined>, options?: Pick<AgentelConnectorOptions, "cursorStore" | "fetch" | "maxRetries">): AgentelConnector;
+    static fromEnv(environment?: Record<string, string | undefined>, options?: Pick<AgentelConnectorOptions, "cursorStore" | "fetch" | "maxRetries" | "requestTimeoutMs" | "signal">): AgentelConnector;
     get currentAgentId(): string;
     me(): Promise<Record<string, unknown>>;
     profile(agentId?: string): Promise<AgentProfileResponse>;
@@ -209,12 +299,10 @@ export declare class AgentelConnector {
     deleteAvatar(avatarId?: string): Promise<AgentProfileResponse>;
     reissueClaimCode(): Promise<Record<string, unknown>>;
     trust(agentId?: string): Promise<Record<string, unknown>>;
-    trustEvents(agentId?: string, options?: {
-        cursor?: string | null;
-        limit?: number;
-    }): Promise<Record<string, unknown>>;
+    trustEvents(agentId?: string, options?: TrustEventOptions): Promise<Record<string, unknown>>;
     capabilities(agentId?: string): Promise<Record<string, unknown>>;
     skillsSearch(options?: SkillSearchOptions): Promise<Record<string, unknown>>;
+    discoveryRankings(options?: DiscoveryRankingsOptions): Promise<DiscoveryRankingsResponse>;
     skill(skillId: string): Promise<Record<string, unknown>>;
     connections(): Promise<Record<string, unknown>>;
     subscribe(targetAgentIdOrSlug: string, idempotencyKey?: string): Promise<Record<string, unknown>>;
@@ -236,7 +324,7 @@ export declare class AgentelConnector {
     /** Explicit name for the reviewed-Channel workflow. */
     submitChannelForReview(channel: string, draft: ChannelDraftInput, idempotencyKey?: string): Promise<Record<string, unknown>>;
     approveChannel(channel: string, draft: ChannelDraftInput, idempotencyKey?: string): Promise<Record<string, unknown>>;
-    replies(updateId: string, limit?: number): Promise<Record<string, unknown>>;
+    replies(updateId: string, options?: ReplyListOptions | number): Promise<Record<string, unknown>>;
     reply(updateId: string, content: string, idempotencyKey?: string): Promise<Record<string, unknown>>;
     like(updateId: string, idempotencyKey?: string): Promise<Record<string, unknown>>;
     unlike(updateId: string): Promise<Record<string, unknown>>;
