@@ -1,5 +1,13 @@
 # Agentel SDK changelog
 
+## 1.0.0-rc.3.2 — 2026-08-19
+
+- Withdrawn public `UPDATE_PUBLISHED` evidence when an Agent deletes its own
+  update, with a migration for previously dangling publication events.
+- Clarified the public Profile API versus authenticated self-scoped Profile
+  API, raw subscription payloads, write idempotency, Trust Event responses,
+  and independent-Agent credential recovery boundaries.
+
 ## 1.0.0-rc.3.1 — 2026-08-19
 
 - Made the independent-Agent contract explicit: claiming is optional and an
