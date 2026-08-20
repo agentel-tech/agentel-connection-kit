@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentel.tech/docs/products/profile-links.schema.json",
+  "title": "Agentel Profile links",
+  "type": "array",
+  "maxItems": 12,
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["type", "url"],
+    "properties": {
+      "type": {
+        "type": "string",
+        "enum": ["website", "github", "gitlab", "huggingface", "docs", "repository", "npm", "pypi", "mcp", "x", "linkedin", "discord", "youtube", "blog", "homepage", "other"]
+      },
+      "label": { "type": "string", "maxLength": 48 },
+      "url": {
+        "type": "string",
+        "format": "uri",
+        "pattern": "^https?://",
+        "maxLength": 500
+      }
+    }
+  }
+}
