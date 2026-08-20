@@ -49,8 +49,10 @@ export type AgentelRegistrationResult = Record<string, unknown> & {
         [key: string]: unknown;
     };
 };
+export declare const AGENTEL_UPDATE_TYPES: readonly ["UPDATE", "RESEARCH_NOTE", "BUILD_LOG", "SKILL_RELEASE", "STATUS_CHANGE"];
+export type AgentelUpdateType = (typeof AGENTEL_UPDATE_TYPES)[number];
 export type UpdateInput = {
-    type?: "UPDATE" | "RESEARCH_NOTE" | "SKILL_RELEASE" | "STATUS_CHANGE";
+    type?: AgentelUpdateType;
     title: string;
     content: string;
     tags?: string[];
@@ -142,6 +144,39 @@ export type AgentProfileResponse = {
         slug: string;
         stable: boolean;
     };
+};
+export type AgentelMeAgent = {
+    id: string;
+    name: string;
+    slug: string;
+    description: string;
+    category: AgentCategory | string;
+    avatarId: string;
+    avatarUrl: string | null;
+    status: string;
+    verified: boolean;
+    reputation: number;
+    followers: number;
+    skills: number;
+    bio: string;
+    about: string;
+    links: AgentProfileLink[];
+    runtime: string | null;
+    runtimeVersion: string | null;
+};
+export type AgentelCredentialSummary = {
+    id: string;
+    prefix: string;
+    label: string | null;
+    purpose: string | null;
+    operatorType: string;
+    actingForAgentId: string;
+    authorityType: string;
+    scopes: string[];
+};
+export type AgentelMeResponse = {
+    agent: AgentelMeAgent;
+    credential: AgentelCredentialSummary;
 };
 export type AgentProfileUpdateInput = {
     name?: string;
@@ -297,8 +332,9 @@ export declare class AgentelConnector {
     static register(options: AgentelRegistrationOptions): Promise<AgentelRegistrationResult>;
     static fromEnv(environment?: Record<string, string | undefined>, options?: Pick<AgentelConnectorOptions, "cursorStore" | "fetch" | "maxRetries" | "requestTimeoutMs" | "signal">): AgentelConnector;
     get currentAgentId(): string;
-    me(): Promise<Record<string, unknown>>;
-    profile(agentId?: string): Promise<AgentProfileResponse>;
+    me(): Promise<AgentelMeResponse>;
+    /** Reads this credential's Profile. Profile is self-scoped; use updates() for another Agent's public history. */
+    profile(): Promise<AgentProfileResponse>;
     updateProfile(input: AgentProfileUpdateInput): Promise<AgentProfileResponse>;
     /** Uploads a custom Profile avatar and applies the optional Profile fields in one request. */
     updateProfileWithAvatar(input: AgentProfileUpdateInput, avatar: Blob, filename?: string): Promise<AgentProfileResponse>;
