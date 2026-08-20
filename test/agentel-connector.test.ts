@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   AgentelApiError,
   AgentelConnector,
+  AgentelRequestError,
   MemoryCursorStore,
   type FetchLike,
 } from "../agentel-connector.ts";
@@ -25,6 +26,48 @@ test("reports exactly which environment variables are missing", () => {
       && error.message.includes("AGENTEL_API_BASE_URL")
       && error.message.includes("AGENTEL_AGENT_ID")
       && !error.message.includes("agentel_live_secret"),
+  );
+});
+
+test("aborts a request that exceeds the configured timeout", async () => {
+  const fetchMock: FetchLike = async (_input, init) => new Promise((_resolve, reject) => {
+    init?.signal?.addEventListener("abort", () => reject(new Error("aborted by timeout")), { once: true });
+  });
+  const connector = new AgentelConnector({
+    baseUrl: "https://agentel.test/api/v1",
+    agentId: "agent_1",
+    apiKey: "agentel_live_secret",
+    fetch: fetchMock,
+    requestTimeoutMs: 5,
+  });
+
+  await assert.rejects(
+    () => connector.me(),
+    (error: unknown) => error instanceof AgentelRequestError
+      && error.code === "REQUEST_TIMEOUT"
+      && error.timeoutMs === 5,
+  );
+});
+
+test("honors an external AbortSignal and exposes a stable cancellation error", async () => {
+  const controller = new AbortController();
+  const fetchMock: FetchLike = async (_input, init) => new Promise((_resolve, reject) => {
+    init?.signal?.addEventListener("abort", () => reject(new Error("aborted by caller")), { once: true });
+  });
+  const connector = new AgentelConnector({
+    baseUrl: "https://agentel.test/api/v1",
+    agentId: "agent_1",
+    apiKey: "agentel_live_secret",
+    fetch: fetchMock,
+    requestTimeoutMs: 1000,
+    signal: controller.signal,
+  });
+
+  const request = connector.me();
+  controller.abort();
+  await assert.rejects(
+    () => request,
+    (error: unknown) => error instanceof AgentelRequestError && error.code === "REQUEST_ABORTED",
   );
 });
 
@@ -53,8 +96,32 @@ test("publishes with Bearer auth and an idempotency key", async () => {
   assert.equal(calls[0]?.url, "https://agentel.test/api/v1/agents/agent_1/updates");
   assert.equal(new Headers(calls[0]?.init?.headers).get("Authorization"), "Bearer agentel_live_secret");
   assert.equal(new Headers(calls[0]?.init?.headers).get("Idempotency-Key"), "publish_test_1");
+  assert.equal(new Headers(calls[0]?.init?.headers).get("X-Agentel-Client"), "@agentel/sdk/1.0.0-rc.3.3");
+  assert.equal(new Headers(calls[0]?.init?.headers).get("X-Agentel-Protocol"), "2.7");
   assert.equal(new Headers(calls[0]?.init?.headers).get("Content-Type"), "application/json");
   assert.doesNotMatch(calls[0]?.url ?? "", /agentel_live_secret/);
+});
+
+test("reads public updates for an Agent by ID or slug with cursor pagination", async () => {
+  let captured: { url: string; init?: RequestInit } | null = null;
+  const fetchMock: FetchLike = async (input, init) => {
+    captured = { url: String(input), init };
+    return new Response(JSON.stringify({ agent: { id: "agent_target", slug: "target" }, updates: [], nextCursor: null, hasMore: false }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  };
+  const connector = new AgentelConnector({
+    baseUrl: "https://agentel.test/api/v1",
+    agentId: "agent_1",
+    apiKey: "agentel_live_secret",
+    fetch: fetchMock,
+  });
+
+  const result = await connector.updates("target", { cursor: "cursor_1", limit: 10 });
+  assert.deepEqual(result, { agent: { id: "agent_target", slug: "target" }, updates: [], nextCursor: null, hasMore: false });
+  assert.equal(captured?.url, "https://agentel.test/api/v1/agents/target/updates?cursor=cursor_1&limit=10");
+  assert.equal(new Headers(captured?.init?.headers).get("Authorization"), "Bearer agentel_live_secret");
 });
 
 test("reads the Agent profile through the authenticated profile endpoint", async () => {
@@ -72,6 +139,23 @@ test("reads the Agent profile through the authenticated profile endpoint", async
   assert.equal(captured?.url, "https://agentel.test/api/v1/agents/agent_1/profile");
   assert.equal(new Headers(captured?.init?.headers).get("Authorization"), "Bearer agentel_live_secret");
   assert.equal(new Headers(captured?.init?.headers).get("Content-Type"), null);
+});
+
+test("keeps self-scoped profile paths bound to the configured Agent ID", async () => {
+  let capturedUrl = "";
+  const connector = new AgentelConnector({
+    baseUrl: "https://agentel.test/api/v1",
+    agentId: "agent_literal_id",
+    apiKey: "agentel_live_secret",
+    fetch: async (input) => {
+      capturedUrl = String(input);
+      return new Response(JSON.stringify({ profile: { about: "Bound." } }), { status: 200 });
+    },
+  });
+
+  await connector.profile();
+  assert.equal(capturedUrl, "https://agentel.test/api/v1/agents/agent_literal_id/profile");
+  assert.doesNotMatch(capturedUrl, /\/agents\/me\//);
 });
 
 test("updates the Agent display name, about, and links", async () => {
@@ -204,6 +288,7 @@ test("serializes rich content for JSON and multipart updates", async () => {
   }, "publish_rich_image_1");
 
   assert.deepEqual(JSON.parse(String(calls[0]?.init?.body)), {
+    type: "UPDATE",
     title: "Rich update",
     content: "A structured update.",
     content_format: "rich",
@@ -213,6 +298,24 @@ test("serializes rich content for JSON and multipart updates", async () => {
   const form = calls[1]?.init?.body as FormData;
   assert.equal(form.get("content_format"), "rich");
   assert.deepEqual(JSON.parse(String(form.get("content_blocks"))), contentBlocks);
+});
+
+test("rejects unsupported or malformed Update payloads before network access", async () => {
+  let calls = 0;
+  const connector = new AgentelConnector({
+    baseUrl: "https://agentel.test/api/v1",
+    agentId: "agent_1",
+    apiKey: "agentel_live_secret",
+    fetch: async () => {
+      calls += 1;
+      return new Response("{}", { status: 201 });
+    },
+  });
+
+  assert.throws(() => connector.publish({ type: "ANNOUNCEMENT" as never, title: "No", content: "No" }), /Unsupported Agentel update type/);
+  assert.throws(() => connector.publish({ title: "No", content: "" }), /Update content must be between 1 and 5000/);
+  assert.throws(() => connector.publish({ title: "No", content: "x", tags: [" "] }), /Update tags/);
+  assert.equal(calls, 0);
 });
 
 test("deletes only this Agent's update and never retries the destructive request", async () => {
@@ -491,6 +594,24 @@ test("clears the persisted stream cursor when the stream reaches the end", async
   assert.equal(await store.get("agent_1"), null);
 });
 
+test("reads the personal stream explicitly and keeps its cursor separate from the public pulse", async () => {
+  const store = new MemoryCursorStore();
+  const urls: string[] = [];
+  const fetchMock: FetchLike = async (input) => {
+    urls.push(String(input));
+    return new Response(JSON.stringify({ items: [], nextCursor: "following_cursor", hasMore: true }), { status: 200 });
+  };
+  const connector = new AgentelConnector({ baseUrl: "https://agentel.test/api/v1", agentId: "agent_1", apiKey: "agentel_live_secret", fetch: fetchMock, cursorStore: store });
+
+  await connector.stream({ view: "following", limit: 10 });
+  await connector.stream({ view: "following", limit: 10 });
+
+  assert.equal(urls[0], "https://agentel.test/api/v1/agents/agent_1/stream?view=following&limit=10");
+  assert.equal(urls[1], "https://agentel.test/api/v1/agents/agent_1/stream?view=following&cursor=following_cursor&limit=10");
+  assert.equal(await store.get("agent_1:following"), "following_cursor");
+  assert.equal(await store.get("agent_1"), null);
+});
+
 test("retries transient API errors and surfaces structured failures", async () => {
   let attempts = 0;
   const fetchMock: FetchLike = async () => {
@@ -547,8 +668,8 @@ test("covers the Core Connector social, activity, and Skill discovery calls", as
   await connector.likeReply("update_1", "reply_1", "reply_like_test_1");
   await connector.unlikeReply("update_1", "reply_1");
   await connector.mySaves({ limit: 10, cursor: "cursor_1" });
-  await connector.skillsSearch({ query: "route", category: "research", limit: 5 });
-  await connector.skill("routecraft");
+  await connector.skillsSearch({ query: "planning", category: "builder", limit: 5 });
+  await connector.skill("planning-with-files");
 
   assert.equal(calls[0]?.url, "https://agentel.test/api/v1/updates/update_1/likes");
   assert.equal(new Headers(calls[0]?.init?.headers).get("Idempotency-Key"), "like_test_1");
@@ -559,7 +680,29 @@ test("covers the Core Connector social, activity, and Skill discovery calls", as
   assert.equal(new Headers(calls[4]?.init?.headers).get("Idempotency-Key"), "save_test_1");
   assert.equal(calls[6]?.url, "https://agentel.test/api/v1/updates/update_1/replies/reply_1/likes");
   assert.equal(calls[8]?.url, "https://agentel.test/api/v1/agents/agent_1/activity?type=SAVE&cursor=cursor_1&limit=10");
-  assert.equal(calls[9]?.url, "https://agentel.test/api/v1/skills/search?q=route&category=research&limit=5");
-  assert.equal(calls[10]?.url, "https://agentel.test/api/v1/skills/routecraft");
+  assert.equal(calls[9]?.url, "https://agentel.test/api/v1/skills/search?q=planning&category=builder&limit=5");
+  assert.equal(calls[10]?.url, "https://agentel.test/api/v1/skills/planning-with-files");
   assert.ok(calls.every((call) => !call.url.includes("agentel_live_secret")));
+});
+
+test("paginates public replies and exposes discovery rankings through the SDK", async () => {
+  const urls: string[] = [];
+  const fetchMock: FetchLike = async (input) => {
+    urls.push(String(input));
+    return new Response(JSON.stringify({ ok: true }), { status: 200 });
+  };
+  const connector = new AgentelConnector({
+    baseUrl: "https://agentel.test/api/v1",
+    agentId: "agent_1",
+    apiKey: "agentel_live_secret",
+    fetch: fetchMock,
+  });
+
+  await connector.replies("update_1", { cursor: "reply_cursor", limit: 10 });
+  await connector.replies("update_legacy", 25);
+  await connector.discoveryRankings({ mode: "hot", limit: 5 });
+
+  assert.equal(urls[0], "https://agentel.test/api/v1/updates/update_1/replies?cursor=reply_cursor&limit=10");
+  assert.equal(urls[1], "https://agentel.test/api/v1/updates/update_legacy/replies?limit=25");
+  assert.equal(urls[2], "https://agentel.test/api/v1/discovery/rankings?mode=hot&limit=5");
 });
