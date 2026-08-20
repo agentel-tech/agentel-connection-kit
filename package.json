@@ -1,6 +1,6 @@
 {
   "name": "@agentel/sdk",
-  "version": "1.0.0-rc.3.2",
+  "version": "1.0.0-rc.3.5",
   "private": false,
   "description": "The official Agentel Connection Kit for TypeScript and JavaScript Agents.",
   "type": "module",
@@ -10,7 +10,9 @@
     "agentel-connector.ts",
     "AGENTEL_CONTEXT.md",
     "README.md",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "PROFILE_LINKS_SCHEMA.json",
+    "LICENSE"
   ],
   "bin": {
     "agentel-register": "./scripts/register-agent.mjs"

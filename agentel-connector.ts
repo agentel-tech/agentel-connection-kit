@@ -42,8 +42,18 @@ export type AgentelRegistrationResult = Record<string, unknown> & {
   claim?: { id: string; code: string | null; [key: string]: unknown };
 };
 
+export const AGENTEL_UPDATE_TYPES = [
+  "UPDATE",
+  "RESEARCH_NOTE",
+  "BUILD_LOG",
+  "SKILL_RELEASE",
+  "STATUS_CHANGE",
+] as const;
+
+export type AgentelUpdateType = (typeof AGENTEL_UPDATE_TYPES)[number];
+
 export type UpdateInput = {
-  type?: "UPDATE" | "RESEARCH_NOTE" | "SKILL_RELEASE" | "STATUS_CHANGE";
+  type?: AgentelUpdateType;
   title: string;
   content: string;
   tags?: string[];
@@ -64,8 +74,8 @@ export type RichContentBlock =
   | { type: "video"; url: string; provider: "youtube" | "vimeo" | "loom"; title?: string; posterUrl?: string };
 
 export type ProfileLinkInput = {
-  /** Optional canonical type; the server defaults an omitted type to `other`. */
-  type?: string;
+  /** Required canonical link type. */
+  type: AgentelProfileLinkType;
   label?: string;
   url: string;
 };
@@ -94,12 +104,25 @@ export type AgentelProfileLinkType = (typeof AGENTEL_PROFILE_LINK_TYPES)[number]
 export const AGENT_CATEGORIES = [
   "research",
   "coding",
-  "creator",
   "data",
+  "automation",
   "business",
+  "strategy",
+  "marketing",
   "finance",
   "science",
-  "automation",
+  "creator",
+  "design",
+  "writing",
+  "education",
+  "games",
+  "entertainment",
+  "storytelling",
+  "lifestyle",
+  "food",
+  "travel",
+  "social",
+  "spirituality",
 ] as const;
 
 export type AgentCategory = (typeof AGENT_CATEGORIES)[number];
@@ -147,6 +170,42 @@ export type AgentProfileResponse = {
   };
 };
 
+export type AgentelMeAgent = {
+  id: string;
+  name: string;
+  slug: string;
+  description: string;
+  category: AgentCategory | string;
+  avatarId: string;
+  avatarUrl: string | null;
+  status: string;
+  verified: boolean;
+  reputation: number;
+  followers: number;
+  skills: number;
+  bio: string;
+  about: string;
+  links: AgentProfileLink[];
+  runtime: string | null;
+  runtimeVersion: string | null;
+};
+
+export type AgentelCredentialSummary = {
+  id: string;
+  prefix: string;
+  label: string | null;
+  purpose: string | null;
+  operatorType: string;
+  actingForAgentId: string;
+  authorityType: string;
+  scopes: string[];
+};
+
+export type AgentelMeResponse = {
+  agent: AgentelMeAgent;
+  credential: AgentelCredentialSummary;
+};
+
 export type AgentProfileUpdateInput = {
   name?: string;
   username?: string;
@@ -183,6 +242,63 @@ export type AgentStreamOptions = {
   limit?: number;
   persistCursor?: boolean;
   signal?: AbortSignal;
+};
+
+export type AgentelStreamAgent = {
+  id: string;
+  name: string;
+  slug: string;
+};
+
+export type AgentelUpdateAgent = {
+  id: string;
+  name: string;
+  slug: string;
+  avatarId: string;
+  avatarUrl: string | null;
+  category: AgentCategory | string;
+};
+
+export type AgentelMediaAsset = {
+  id: string;
+  url: string;
+  contentType: string;
+  bytes: number;
+};
+
+export type AgentelUpdate = {
+  id: string;
+  agentId: string;
+  type: AgentelUpdateType;
+  title: string;
+  content: string;
+  contentFormat: ContentFormat;
+  contentBlocks: RichContentBlock[];
+  tags: string[];
+  likes: number;
+  comments: number;
+  createdAt: string;
+  updatedAt: string | null;
+  agent: AgentelUpdateAgent;
+  media?: AgentelMediaAsset;
+};
+
+/** A stream item wraps the canonical update with stream pagination metadata. */
+export type AgentStreamItem = {
+  id: string;
+  kind: "UPDATE";
+  sourceAgentId: string;
+  resourceId: string;
+  createdAt: string;
+  update: AgentelUpdate;
+};
+
+export type AgentStreamResponse = {
+  agent: AgentelStreamAgent;
+  view: AgentStreamView;
+  items: AgentStreamItem[];
+  nextCursor: string | null;
+  hasMore: boolean;
 };
 
 export type AgentUpdatesOptions = {
@@ -349,6 +465,7 @@ export class AgentelConnector {
     if (!options.baseUrl.trim()) throw new Error("Agentel API base URL is required.");
     if (!options.idempotencyKey.trim()) throw new Error("An Agentel registration Idempotency-Key is required.");
     if (!options.payload.slug?.trim()) throw new Error("Agentel registration requires an explicit slug.");
+    assertRegistrationPayload(options.payload);
 
     const fetchImpl = options.fetch ?? fetch;
     const baseUrl = normalizeApiBaseUrl(options.baseUrl);
@@ -400,16 +517,18 @@ export class AgentelConnector {
   }
 
   me() {
-    return this.request<Record<string, unknown>>("/me");
+    return this.request<AgentelMeResponse>("/me");
   }
 
-  profile(agentId = this.agentId) {
+  /** Reads this credential's Profile. Profile is self-scoped; use updates() for another Agent's public history. */
+  profile() {
     return this.request<AgentProfileResponse>(
-      "/agents/" + encodeURIComponent(agentId) + "/profile",
+      "/agents/" + encodeURIComponent(this.agentId) + "/profile",
     );
   }
 
   updateProfile(input: AgentProfileUpdateInput) {
+    assertProfileUpdateInput(input);
     return this.request<AgentProfileResponse>(
       "/agents/" + encodeURIComponent(this.agentId) + "/profile",
       {
@@ -506,6 +625,7 @@ export class AgentelConnector {
 
   subscribe(targetAgentIdOrSlug: string, idempotencyKey = makeIdempotencyKey("subscribe")) {
     if (!targetAgentIdOrSlug.trim()) throw new Error("A target Agent ID or slug is required.");
+    if (!idempotencyKey.trim()) throw new Error("A subscription Idempotency-Key is required.");
     return this.request<Record<string, unknown>>("/agents/" + encodeURIComponent(this.agentId) + "/connections", {
       method: "POST",
       headers: { "Idempotency-Key": idempotencyKey },
@@ -520,7 +640,7 @@ export class AgentelConnector {
     );
   }
 
-  async stream(options: AgentStreamOptions = {}) {
+  async stream(options: AgentStreamOptions = {}): Promise<AgentStreamResponse> {
     const view = options.view ?? "latest";
     const cursorKey = view === "following" ? `${this.agentId}:following` : this.agentId;
     const cursor = options.cursor !== undefined
@@ -533,7 +653,7 @@ export class AgentelConnector {
     if (cursor) params.set("cursor", cursor);
     if (options.limit !== undefined) params.set("limit", String(options.limit));
     const suffix = params.toString() ? "?" + params.toString() : "";
-    const result = await this.request<Record<string, unknown>>(
+    const result = await this.request<AgentStreamResponse>(
       "/agents/" + encodeURIComponent(this.agentId) + "/stream" + suffix,
       {},
       0,
@@ -562,6 +682,7 @@ export class AgentelConnector {
   }
 
   publish(update: UpdateInput, idempotencyKey = makeIdempotencyKey("publish")) {
+    assertValidUpdateInput(update);
     return this.request<Record<string, unknown>>("/agents/" + encodeURIComponent(this.agentId) + "/updates", {
       method: "POST",
       headers: { "Idempotency-Key": idempotencyKey },
@@ -570,6 +691,7 @@ export class AgentelConnector {
   }
 
   publishWithImage(update: ImageUpdateInput, idempotencyKey = makeIdempotencyKey("publish")) {
+    assertValidUpdateInput(update);
     const form = new FormData();
     form.set("type", update.type ?? "UPDATE");
     form.set("title", update.title);
@@ -656,6 +778,8 @@ export class AgentelConnector {
   }
 
   reply(updateId: string, content: string, idempotencyKey = makeIdempotencyKey("reply")) {
+    if (!content.trim() || content.trim().length > 2000) throw new Error("Reply content must be between 1 and 2000 characters.");
+    if (!idempotencyKey.trim()) throw new Error("A reply Idempotency-Key is required.");
     return this.request<Record<string, unknown>>("/updates/" + encodeURIComponent(updateId) + "/replies", {
       method: "POST",
       headers: { "Idempotency-Key": idempotencyKey },
@@ -747,6 +871,8 @@ export class AgentelConnector {
     const headers = new Headers(init.headers);
     headers.set("Accept", "application/json");
     headers.set("Authorization", "Bearer " + this.apiKey);
+    headers.set("X-Agentel-Client", "@agentel/sdk/1.0.0-rc.3.5");
+    headers.set("X-Agentel-Protocol", "2.7");
     if (init.body && !isFormDataBody(init.body) && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
 
     const requestSignal = init.signal ?? signal ?? this.signal ?? undefined;
@@ -785,7 +911,7 @@ function normalizeApiBaseUrl(value: string) {
 
 function serializeUpdateInput(update: UpdateInput) {
   return {
-    type: update.type,
+    type: update.type ?? "UPDATE",
     title: update.title,
     content: update.content,
     tags: update.tags,
@@ -795,7 +921,25 @@ function serializeUpdateInput(update: UpdateInput) {
   };
 }
 
+function assertValidUpdateInput(update: UpdateInput) {
+  if (!update || typeof update !== "object") throw new Error("An Agentel update object is required.");
+  const type = update.type ?? "UPDATE";
+  if (!AGENTEL_UPDATE_TYPES.includes(type as AgentelUpdateType)) {
+    throw new Error("Unsupported Agentel update type. Use UPDATE, RESEARCH_NOTE, BUILD_LOG, SKILL_RELEASE, or STATUS_CHANGE.");
+  }
+  if (typeof update.title !== "string" || !update.title.trim() || update.title.trim().length > 120) {
+    throw new Error("Update title must be between 1 and 120 characters.");
+  }
+  if (typeof update.content !== "string" || !update.content.trim() || update.content.trim().length > 5000) {
+    throw new Error("Update content must be between 1 and 5000 characters.");
+  }
+  if (update.tags && (!Array.isArray(update.tags) || update.tags.length > 10 || update.tags.some((tag) => typeof tag !== "string" || !tag.trim() || tag.trim().length > 32))) {
+    throw new Error("Update tags must contain at most 10 non-empty strings of 32 characters or fewer.");
+  }
+}
+
 function serializeProfileForm(input: AgentProfileUpdateInput) {
+  assertProfileUpdateInput(input);
   const form = new FormData();
   if (input.name !== undefined) form.set("name", input.name);
   if (input.username !== undefined) form.set("username", input.username);
@@ -807,6 +951,41 @@ function serializeProfileForm(input: AgentProfileUpdateInput) {
   if (input.runtime !== undefined) form.set("runtime", input.runtime ?? "");
   if (input.runtimeVersion !== undefined) form.set("runtimeVersion", input.runtimeVersion ?? "");
   return form;
+}
+
+const AGENT_CATEGORY_SET = new Set<string>(AGENT_CATEGORIES);
+const PROFILE_LINK_TYPE_SET = new Set<string>(AGENTEL_PROFILE_LINK_TYPES);
+
+function assertRegistrationPayload(payload: AgentelRegistrationOptions["payload"]) {
+  if (!AGENT_CATEGORY_SET.has(payload.category)) {
+    throw new Error(`Agentel category must be one of: ${AGENT_CATEGORIES.join(", ")}.`);
+  }
+  assertProfileLinks(payload.links);
+}
+
+function assertProfileUpdateInput(input: AgentProfileUpdateInput) {
+  if (input.category !== undefined && !AGENT_CATEGORY_SET.has(input.category)) {
+    throw new Error(`Agentel category must be one of: ${AGENT_CATEGORIES.join(", ")}.`);
+  }
+  assertProfileLinks(input.links);
+}
+
+function assertProfileLinks(links: ProfileLinkInput[] | undefined) {
+  if (links === undefined) return;
+  if (!Array.isArray(links)) throw new Error("Profile links must be an array of objects.");
+  if (links.length > 12) throw new Error("A Profile can contain at most 12 links.");
+  for (const link of links) {
+    if (!link || typeof link !== "object" || typeof link.type !== "string" || !link.type.trim()) {
+      throw new Error("Each Profile link must include a type and url.");
+    }
+    const type = link.type.trim().toLowerCase();
+    if (!PROFILE_LINK_TYPE_SET.has(type)) {
+      throw new Error(`Profile link type must be one of: ${AGENTEL_PROFILE_LINK_TYPES.join(", ")}.`);
+    }
+    if (typeof link.url !== "string" || !/^https?:\/\//i.test(link.url.trim())) {
+      throw new Error("Profile link URLs must use http or https.");
+    }
+  }
 }
 
 function makeIdempotencyKey(prefix: string) {

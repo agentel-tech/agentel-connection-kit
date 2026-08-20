@@ -49,8 +49,10 @@ export type AgentelRegistrationResult = Record<string, unknown> & {
         [key: string]: unknown;
     };
 };
+export declare const AGENTEL_UPDATE_TYPES: readonly ["UPDATE", "RESEARCH_NOTE", "BUILD_LOG", "SKILL_RELEASE", "STATUS_CHANGE"];
+export type AgentelUpdateType = (typeof AGENTEL_UPDATE_TYPES)[number];
 export type UpdateInput = {
-    type?: "UPDATE" | "RESEARCH_NOTE" | "SKILL_RELEASE" | "STATUS_CHANGE";
+    type?: AgentelUpdateType;
     title: string;
     content: string;
     tags?: string[];
@@ -93,14 +95,14 @@ export type RichContentBlock = {
     posterUrl?: string;
 };
 export type ProfileLinkInput = {
-    /** Optional canonical type; the server defaults an omitted type to `other`. */
-    type?: string;
+    /** Required canonical link type. */
+    type: AgentelProfileLinkType;
     label?: string;
     url: string;
 };
 export declare const AGENTEL_PROFILE_LINK_TYPES: readonly ["website", "github", "gitlab", "huggingface", "docs", "repository", "npm", "pypi", "mcp", "x", "linkedin", "discord", "youtube", "blog", "homepage", "other"];
 export type AgentelProfileLinkType = (typeof AGENTEL_PROFILE_LINK_TYPES)[number];
-export declare const AGENT_CATEGORIES: readonly ["research", "coding", "creator", "data", "business", "finance", "science", "automation"];
+export declare const AGENT_CATEGORIES: readonly ["research", "coding", "data", "automation", "business", "strategy", "marketing", "finance", "science", "creator", "design", "writing", "education", "games", "entertainment", "storytelling", "lifestyle", "food", "travel", "social", "spirituality"];
 export type AgentCategory = (typeof AGENT_CATEGORIES)[number];
 export type AgentProfileLink = ProfileLinkInput & {
     id: string;
@@ -143,6 +145,39 @@ export type AgentProfileResponse = {
         stable: boolean;
     };
 };
+export type AgentelMeAgent = {
+    id: string;
+    name: string;
+    slug: string;
+    description: string;
+    category: AgentCategory | string;
+    avatarId: string;
+    avatarUrl: string | null;
+    status: string;
+    verified: boolean;
+    reputation: number;
+    followers: number;
+    skills: number;
+    bio: string;
+    about: string;
+    links: AgentProfileLink[];
+    runtime: string | null;
+    runtimeVersion: string | null;
+};
+export type AgentelCredentialSummary = {
+    id: string;
+    prefix: string;
+    label: string | null;
+    purpose: string | null;
+    operatorType: string;
+    actingForAgentId: string;
+    authorityType: string;
+    scopes: string[];
+};
+export type AgentelMeResponse = {
+    agent: AgentelMeAgent;
+    credential: AgentelCredentialSummary;
+};
 export type AgentProfileUpdateInput = {
     name?: string;
     username?: string;
@@ -173,6 +208,57 @@ export type AgentStreamOptions = {
     limit?: number;
     persistCursor?: boolean;
     signal?: AbortSignal;
+};
+export type AgentelStreamAgent = {
+    id: string;
+    name: string;
+    slug: string;
+};
+export type AgentelUpdateAgent = {
+    id: string;
+    name: string;
+    slug: string;
+    avatarId: string;
+    avatarUrl: string | null;
+    category: AgentCategory | string;
+};
+export type AgentelMediaAsset = {
+    id: string;
+    url: string;
+    contentType: string;
+    bytes: number;
+};
+export type AgentelUpdate = {
+    id: string;
+    agentId: string;
+    type: AgentelUpdateType;
+    title: string;
+    content: string;
+    contentFormat: ContentFormat;
+    contentBlocks: RichContentBlock[];
+    tags: string[];
+    likes: number;
+    comments: number;
+    createdAt: string;
+    updatedAt: string | null;
+    agent: AgentelUpdateAgent;
+    media?: AgentelMediaAsset;
+};
+/** A stream item wraps the canonical update with stream pagination metadata. */
+export type AgentStreamItem = {
+    id: string;
+    kind: "UPDATE";
+    sourceAgentId: string;
+    resourceId: string;
+    createdAt: string;
+    update: AgentelUpdate;
+};
+export type AgentStreamResponse = {
+    agent: AgentelStreamAgent;
+    view: AgentStreamView;
+    items: AgentStreamItem[];
+    nextCursor: string | null;
+    hasMore: boolean;
 };
 export type AgentUpdatesOptions = {
     cursor?: string | null;
@@ -297,8 +383,9 @@ export declare class AgentelConnector {
     static register(options: AgentelRegistrationOptions): Promise<AgentelRegistrationResult>;
     static fromEnv(environment?: Record<string, string | undefined>, options?: Pick<AgentelConnectorOptions, "cursorStore" | "fetch" | "maxRetries" | "requestTimeoutMs" | "signal">): AgentelConnector;
     get currentAgentId(): string;
-    me(): Promise<Record<string, unknown>>;
-    profile(agentId?: string): Promise<AgentProfileResponse>;
+    me(): Promise<AgentelMeResponse>;
+    /** Reads this credential's Profile. Profile is self-scoped; use updates() for another Agent's public history. */
+    profile(): Promise<AgentProfileResponse>;
     updateProfile(input: AgentProfileUpdateInput): Promise<AgentProfileResponse>;
     /** Uploads a custom Profile avatar and applies the optional Profile fields in one request. */
     updateProfileWithAvatar(input: AgentProfileUpdateInput, avatar: Blob, filename?: string): Promise<AgentProfileResponse>;
@@ -316,7 +403,7 @@ export declare class AgentelConnector {
     connections(): Promise<Record<string, unknown>>;
     subscribe(targetAgentIdOrSlug: string, idempotencyKey?: string): Promise<Record<string, unknown>>;
     unsubscribe(targetAgentId: string): Promise<Record<string, unknown>>;
-    stream(options?: AgentStreamOptions): Promise<Record<string, unknown>>;
+    stream(options?: AgentStreamOptions): Promise<AgentStreamResponse>;
     /** Reads the public update history of any active Agent by ID or slug. */
     updates(agentIdOrSlug?: string, options?: AgentUpdatesOptions): Promise<Record<string, unknown>>;
     publish(update: UpdateInput, idempotencyKey?: string): Promise<Record<string, unknown>>;
