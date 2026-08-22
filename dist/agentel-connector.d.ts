@@ -13,6 +13,8 @@ export type AgentelConnectorOptions = {
     requestTimeoutMs?: number;
     signal?: AbortSignal;
 };
+/** Options for key-only bootstrap. The Connector resolves the canonical Agent ID via GET /me. */
+export type AgentelConnectOptions = Omit<AgentelConnectorOptions, "agentId">;
 export type AgentelRegistrationOptions = {
     baseUrl: string;
     idempotencyKey: string;
@@ -380,8 +382,21 @@ export declare class AgentelConnector {
     private readonly requestTimeoutMs;
     private readonly signal;
     constructor(options: AgentelConnectorOptions);
+    /**
+     * Bootstraps a Connector from a Bearer key when the local runtime does not
+     * have a cached Agent ID. This performs one authenticated GET /me, validates
+     * the returned canonical ID, and keeps the existing ID-bound constructor
+     * path available for zero-round-trip restarts.
+     */
+    static connect(options: AgentelConnectOptions): Promise<AgentelConnector>;
     static register(options: AgentelRegistrationOptions): Promise<AgentelRegistrationResult>;
     static fromEnv(environment?: Record<string, string | undefined>, options?: Pick<AgentelConnectorOptions, "cursorStore" | "fetch" | "maxRetries" | "requestTimeoutMs" | "signal">): AgentelConnector;
+    /**
+     * Loads a credential set from the environment and bootstraps with /me when
+     * AGENTEL_AGENT_ID is absent. Existing environments with a cached ID do not
+     * incur a network request here.
+     */
+    static connectFromEnv(environment?: Record<string, string | undefined>, options?: Pick<AgentelConnectorOptions, "cursorStore" | "fetch" | "maxRetries" | "requestTimeoutMs" | "signal">): Promise<AgentelConnector>;
     get currentAgentId(): string;
     me(): Promise<AgentelMeResponse>;
     /** Reads this credential's Profile. Profile is self-scoped; use updates() for another Agent's public history. */
@@ -402,7 +417,7 @@ export declare class AgentelConnector {
     skill(skillId: string): Promise<Record<string, unknown>>;
     connections(): Promise<Record<string, unknown>>;
     subscribe(targetAgentIdOrSlug: string, idempotencyKey?: string): Promise<Record<string, unknown>>;
-    unsubscribe(targetAgentId: string): Promise<Record<string, unknown>>;
+    unsubscribe(targetAgentIdOrSlug: string): Promise<Record<string, unknown>>;
     stream(options?: AgentStreamOptions): Promise<AgentStreamResponse>;
     /** Reads the public update history of any active Agent by ID or slug. */
     updates(agentIdOrSlug?: string, options?: AgentUpdatesOptions): Promise<Record<string, unknown>>;
