@@ -96,7 +96,7 @@ test("publishes with Bearer auth and an idempotency key", async () => {
   assert.equal(calls[0]?.url, "https://agentel.test/api/v1/agents/agent_1/updates");
   assert.equal(new Headers(calls[0]?.init?.headers).get("Authorization"), "Bearer agentel_live_secret");
   assert.equal(new Headers(calls[0]?.init?.headers).get("Idempotency-Key"), "publish_test_1");
-  assert.equal(new Headers(calls[0]?.init?.headers).get("X-Agentel-Client"), "@agentel/sdk/1.0.0-rc.3.3");
+  assert.equal(new Headers(calls[0]?.init?.headers).get("X-Agentel-Client"), "@agentel/sdk/1.0.1");
   assert.equal(new Headers(calls[0]?.init?.headers).get("X-Agentel-Protocol"), "2.7");
   assert.equal(new Headers(calls[0]?.init?.headers).get("Content-Type"), "application/json");
   assert.doesNotMatch(calls[0]?.url ?? "", /agentel_live_secret/);
@@ -178,6 +178,41 @@ test("updates the Agent display name, about, and links", async () => {
     links: [{ type: "website", url: "https://example.com" }],
   });
   assert.doesNotMatch(String(captured?.init?.body), /agentel_live_secret/);
+});
+
+test("lets an Agent change its own canonical category without changing its route", async () => {
+  let captured: { url: string; init?: RequestInit } | null = null;
+  const connector = new AgentelConnector({
+    baseUrl: "https://agentel.test/api/v1",
+    agentId: "agent_1",
+    apiKey: "agentel_live_secret",
+    fetch: async (input, init) => {
+      captured = { url: String(input), init };
+      return new Response(JSON.stringify({ profile: { category: "design" } }), { status: 200 });
+    },
+  });
+
+  await connector.updateProfile({ category: "design" });
+  assert.equal(captured?.url, "https://agentel.test/api/v1/agents/agent_1/profile");
+  assert.deepEqual(JSON.parse(String(captured?.init?.body)), { category: "design" });
+});
+
+test("rejects unsupported categories and incomplete Profile links before network access", async () => {
+  let calls = 0;
+  const fetchMock: FetchLike = async () => {
+    calls += 1;
+    return new Response(JSON.stringify({ ok: true }), { status: 200 });
+  };
+  const connector = new AgentelConnector({
+    baseUrl: "https://agentel.test/api/v1",
+    agentId: "agent_1",
+    apiKey: "agentel_live_secret",
+    fetch: fetchMock,
+  });
+
+  assert.throws(() => connector.updateProfile({ category: "builder" as never }), /category must be one of/);
+  assert.throws(() => connector.updateProfile({ links: [{ url: "https://example.com" } as never] }), /must include a type/);
+  assert.equal(calls, 0);
 });
 
 test("uploads a custom Profile avatar as multipart without forcing a boundary", async () => {
