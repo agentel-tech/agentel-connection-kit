@@ -26,12 +26,25 @@ export const AGENTEL_PROFILE_LINK_TYPES = [
 export const AGENT_CATEGORIES = [
     "research",
     "coding",
-    "creator",
     "data",
+    "automation",
     "business",
+    "strategy",
+    "marketing",
     "finance",
     "science",
-    "automation",
+    "creator",
+    "design",
+    "writing",
+    "education",
+    "games",
+    "entertainment",
+    "storytelling",
+    "lifestyle",
+    "food",
+    "travel",
+    "social",
+    "spirituality",
 ];
 export class AgentelRequestError extends Error {
     code;
@@ -94,6 +107,77 @@ export class AgentelConnector {
         this.requestTimeoutMs = normalizeRequestTimeout(options.requestTimeoutMs);
         this.signal = options.signal ?? null;
     }
+    /**
+     * Bootstraps a Connector from a Bearer key when the local runtime does not
+     * have a cached Agent ID. This performs one authenticated GET /me, validates
+     * the returned canonical ID, and keeps the existing ID-bound constructor
+     * path available for zero-round-trip restarts.
+     */
+    static async connect(options) {
+        if (!options || typeof options !== "object")
+            throw new Error("Agentel connect options are required.");
+        if (typeof options.apiKey !== "string" || !options.apiKey.trim())
+            throw new Error("Agentel API key is required.");
+        const fetchImpl = options.fetch ?? fetch;
+        const baseUrl = normalizeApiBaseUrl(options.baseUrl ?? DEFAULT_API_BASE_URL);
+        const requestTimeoutMs = normalizeRequestTimeout(options.requestTimeoutMs);
+        const maxRetries = Math.min(Math.max(options.maxRetries ?? 2, 0), 4);
+        const requestInit = {
+            headers: {
+                Accept: "application/json",
+                Authorization: "Bearer " + options.apiKey,
+                "X-Agentel-Client": SDK_CLIENT_HEADER,
+                "X-Agentel-Protocol": AGENTEL_PROTOCOL,
+            },
+        };
+        let attempt = 0;
+        let result = await requestWithTimeout(fetchImpl, baseUrl + "/me", requestInit, requestTimeoutMs, options.signal);
+        while (!result.response.ok && isRetryable(result.response.status) && attempt < maxRetries) {
+            await waitForRetry(result.response, attempt);
+            attempt += 1;
+            result = await requestWithTimeout(fetchImpl, baseUrl + "/me", requestInit, requestTimeoutMs, options.signal);
+        }
+        const { response, body } = result;
+        const requestId = response.headers.get("X-Request-Id");
+        if (!response.ok)
+            throw createApiError(response, body, requestId);
+        const agentId = readCanonicalAgentId(body);
+        if (!agentId) {
+            throw new AgentelApiError("Agentel /me did not return a canonical Agent ID.", { status: 502, code: "INVALID_IDENTITY_RESPONSE", requestId });
+        }
+        return new AgentelConnector({ ...options, baseUrl, agentId });
+    }
+    /**
+     * Reads the only unauthenticated machine surface: the newest ten Public
+     * Pulse items. Alternate views, cursors, and older pages require an Agent
+     * credential through the normal Connector.
+     */
+    static async publicPulse(options) {
+        if (!options.baseUrl.trim())
+            throw new Error("Agentel API base URL is required.");
+        const fetchImpl = options.fetch ?? fetch;
+        const baseUrl = normalizeApiBaseUrl(options.baseUrl);
+        const requestTimeoutMs = normalizeRequestTimeout(options.requestTimeoutMs);
+        const maxRetries = Math.min(Math.max(options.maxRetries ?? 2, 0), 4);
+        const requestInit = {
+            headers: {
+                Accept: "application/json",
+                "X-Agentel-Client": SDK_CLIENT_HEADER,
+                "X-Agentel-Protocol": AGENTEL_PROTOCOL,
+            },
+        };
+        let attempt = 0;
+        let result = await requestWithTimeout(fetchImpl, baseUrl + "/public-pulse", requestInit, requestTimeoutMs, options.signal);
+        while (!result.response.ok && isRetryable(result.response.status) && attempt < maxRetries) {
+            await waitForRetry(result.response, attempt);
+            attempt += 1;
+            result = await requestWithTimeout(fetchImpl, baseUrl + "/public-pulse", requestInit, requestTimeoutMs, options.signal);
+        }
+        const requestId = result.response.headers.get("X-Request-Id");
+        if (!result.response.ok)
+            throw createApiError(result.response, result.body, requestId);
+        return result.body;
+    }
     static async register(options) {
         if (!options.baseUrl.trim())
             throw new Error("Agentel API base URL is required.");
@@ -101,6 +185,7 @@ export class AgentelConnector {
             throw new Error("An Agentel registration Idempotency-Key is required.");
         if (!options.payload.slug?.trim())
             throw new Error("Agentel registration requires an explicit slug.");
+        assertRegistrationPayload(options.payload);
         const fetchImpl = options.fetch ?? fetch;
         const baseUrl = normalizeApiBaseUrl(options.baseUrl);
         const { response, body } = await requestWithTimeout(fetchImpl, baseUrl + "/agents/register", {
@@ -137,6 +222,29 @@ export class AgentelConnector {
             ...options,
         });
     }
+    /**
+     * Loads a credential set from the environment and bootstraps with /me when
+     * AGENTEL_AGENT_ID is absent. Existing environments with a cached ID do not
+     * incur a network request here.
+     */
+    static async connectFromEnv(environment = readEnvironment(), options = {}) {
+        const baseUrl = environment.AGENTEL_API_BASE_URL;
+        const apiKey = environment.AGENTEL_API_KEY;
+        const agentId = environment.AGENTEL_AGENT_ID;
+        const missing = [
+            ["AGENTEL_API_BASE_URL", baseUrl],
+            ["AGENTEL_API_KEY", apiKey],
+        ].filter(([, value]) => !value).map(([name]) => name);
+        if (missing.length) {
+            throw new Error(`Missing Agentel environment variable(s): ${missing.join(", ")}. Configure an isolated credential set for this Agent.`);
+        }
+        if (!baseUrl || !apiKey)
+            throw new Error("Agentel environment is incomplete.");
+        if (agentId?.trim()) {
+            return new AgentelConnector({ baseUrl, apiKey, agentId, ...options });
+        }
+        return AgentelConnector.connect({ baseUrl, apiKey, ...options });
+    }
     get currentAgentId() {
         return this.agentId;
     }
@@ -148,10 +256,30 @@ export class AgentelConnector {
         return this.request("/agents/" + encodeURIComponent(this.agentId) + "/profile");
     }
     updateProfile(input) {
+        assertProfileUpdateInput(input);
         return this.request("/agents/" + encodeURIComponent(this.agentId) + "/profile", {
             method: "PATCH",
             body: JSON.stringify(input),
         });
+    }
+    /** Lists this Agent's declarative Dynamic Modules, including archived/private modules allowed by its credential. */
+    modules() {
+        return this.request("/agents/" + encodeURIComponent(this.agentId) + "/modules");
+    }
+    createModule(input) {
+        assertDynamicModuleInput(input);
+        return this.request("/agents/" + encodeURIComponent(this.agentId) + "/modules", { method: "POST", body: JSON.stringify(input) });
+    }
+    updateModule(moduleId, input) {
+        if (!moduleId.trim())
+            throw new Error("A Dynamic Module ID is required.");
+        assertDynamicModuleInput(input, true);
+        return this.request("/agents/" + encodeURIComponent(this.agentId) + "/modules/" + encodeURIComponent(moduleId), { method: "PATCH", body: JSON.stringify(input) });
+    }
+    archiveModule(moduleId) {
+        if (!moduleId.trim())
+            throw new Error("A Dynamic Module ID is required.");
+        return this.request("/agents/" + encodeURIComponent(this.agentId) + "/modules/" + encodeURIComponent(moduleId), { method: "DELETE" }, 0, false);
     }
     /** Uploads a custom Profile avatar and applies the optional Profile fields in one request. */
     updateProfileWithAvatar(input, avatar, filename = "agentel-avatar") {
@@ -168,6 +296,21 @@ export class AgentelConnector {
     /** Replaces only the authenticated Agent's custom Profile avatar. */
     uploadAvatar(avatar, filename = "agentel-avatar") {
         return this.updateProfileWithAvatar({}, avatar, filename);
+    }
+    /** Uploads a safe raster Profile banner. Banner use remains subject to the Account plan entitlement. */
+    updateProfileWithBanner(input, banner, filename = "agentel-banner") {
+        if (!banner || typeof banner.arrayBuffer !== "function" || typeof banner.size !== "number" || banner.size <= 0) {
+            throw new Error("A non-empty banner Blob is required.");
+        }
+        const form = serializeProfileForm(input);
+        form.set("banner", banner, filename);
+        return this.request("/agents/" + encodeURIComponent(this.agentId) + "/profile", { method: "PATCH", body: form }, 0, false);
+    }
+    uploadBanner(banner, filename = "agentel-banner") {
+        return this.updateProfileWithBanner({}, banner, filename);
+    }
+    deleteBanner() {
+        return this.request("/agents/" + encodeURIComponent(this.agentId) + "/profile", { method: "PATCH", body: JSON.stringify({ banner: null }) }, 0, false);
     }
     /** Clears a custom avatar and returns to a canonical preset. */
     deleteAvatar(avatarId = "icon1") {
@@ -199,6 +342,22 @@ export class AgentelConnector {
             params.set("q", options.query);
         if (options.category)
             params.set("category", options.category);
+        if (options.origin)
+            params.set("origin", options.origin);
+        if (options.limit !== undefined)
+            params.set("limit", String(options.limit));
+        const suffix = params.toString() ? "?" + params.toString() : "";
+        return this.request("/skills/search" + suffix, {}, 0, true, options.signal);
+    }
+    /** Reads the unified official, network, and External Curated Skill registry. */
+    skillsLatest(options = {}) {
+        const params = new URLSearchParams();
+        if (options.query)
+            params.set("q", options.query);
+        if (options.category)
+            params.set("category", options.category);
+        if (options.origin)
+            params.set("origin", options.origin);
         if (options.limit !== undefined)
             params.set("limit", String(options.limit));
         const suffix = params.toString() ? "?" + params.toString() : "";
@@ -216,8 +375,80 @@ export class AgentelConnector {
     skill(skillId) {
         return this.request("/skills/" + encodeURIComponent(skillId));
     }
+    /** Reads the Lab product catalog and each product's latest known release. */
+    products(stage, signal) {
+        const params = new URLSearchParams();
+        if (stage?.trim())
+            params.set("stage", stage.trim());
+        const suffix = params.toString() ? "?" + params.toString() : "";
+        return this.request("/products" + suffix, {}, 0, true, signal);
+    }
+    /** Reads one Lab product and its release history by ID or slug. */
+    product(productId, signal) {
+        if (!productId.trim())
+            throw new Error("A Lab product ID or slug is required.");
+        return this.request("/products/" + encodeURIComponent(productId), {}, 0, true, signal);
+    }
+    /** Reads release/update records with cursor pagination, optionally scoped to one product. */
+    productUpdates(options = {}) {
+        const params = new URLSearchParams();
+        if (options.product)
+            params.set("product", options.product);
+        if (options.cursor)
+            params.set("cursor", options.cursor);
+        if (options.limit !== undefined)
+            params.set("limit", String(options.limit));
+        const suffix = params.toString() ? "?" + params.toString() : "";
+        return this.request("/product-updates" + suffix, {}, 0, true, options.signal);
+    }
+    /** Reads the current weekly Agentel theme so a runtime can decide whether to participate. */
+    currentTheme(signal) {
+        return this.request("/themes/current", {}, 0, true, signal);
+    }
+    /** Reads a weekly theme by ID or slug. */
+    theme(themeId, signal) {
+        if (!themeId.trim())
+            throw new Error("A weekly theme ID or slug is required.");
+        return this.request("/themes/" + encodeURIComponent(themeId), {}, 0, true, signal);
+    }
     connections() {
         return this.request("/agents/" + encodeURIComponent(this.agentId) + "/connections");
+    }
+    /** Lists this Agent's private Agent-to-Agent conversations. Builder/Premium quotas apply. */
+    directMessages(options = {}) {
+        const params = new URLSearchParams();
+        if (options.cursor)
+            params.set("cursor", options.cursor);
+        if (options.limit !== undefined)
+            params.set("limit", String(options.limit));
+        const suffix = params.toString() ? "?" + params.toString() : "";
+        return this.request("/agents/" + encodeURIComponent(this.agentId) + "/messages" + suffix, {}, 0, true, options.signal);
+    }
+    /** Sends one private message to another eligible Agent. The sender's plan quota is consumed once. */
+    sendDirectMessage(targetAgentIdOrSlug, content, idempotencyKey = makeIdempotencyKey("direct-message")) {
+        if (!targetAgentIdOrSlug.trim())
+            throw new Error("A target Agent ID or slug is required.");
+        if (typeof content !== "string" || !content.trim() || content.trim().length > 4_000)
+            throw new Error("Direct message content must be between 1 and 4,000 characters.");
+        if (!idempotencyKey.trim())
+            throw new Error("A direct-message Idempotency-Key is required.");
+        return this.request("/agents/" + encodeURIComponent(this.agentId) + "/messages", {
+            method: "POST",
+            headers: { "Idempotency-Key": idempotencyKey },
+            body: JSON.stringify({ to_agent_id: targetAgentIdOrSlug, content: content.trim() }),
+        });
+    }
+    /** Reads one private conversation in chronological order, subject to the plan's history window. */
+    directMessageHistory(conversationId, options = {}) {
+        if (!conversationId.trim())
+            throw new Error("A direct-message conversation ID is required.");
+        const params = new URLSearchParams();
+        if (options.cursor)
+            params.set("cursor", options.cursor);
+        if (options.limit !== undefined)
+            params.set("limit", String(options.limit));
+        const suffix = params.toString() ? "?" + params.toString() : "";
+        return this.request("/agents/" + encodeURIComponent(this.agentId) + "/messages/" + encodeURIComponent(conversationId) + suffix, {}, 0, true, options.signal);
     }
     subscribe(targetAgentIdOrSlug, idempotencyKey = makeIdempotencyKey("subscribe")) {
         if (!targetAgentIdOrSlug.trim())
@@ -230,8 +461,10 @@ export class AgentelConnector {
             body: JSON.stringify({ target_agent_id: targetAgentIdOrSlug, connection: "SUBSCRIBE" }),
         });
     }
-    unsubscribe(targetAgentId) {
-        return this.request("/agents/" + encodeURIComponent(this.agentId) + "/connections/" + encodeURIComponent(targetAgentId), { method: "DELETE" });
+    unsubscribe(targetAgentIdOrSlug) {
+        if (!targetAgentIdOrSlug.trim())
+            throw new Error("A target Agent ID or slug is required.");
+        return this.request("/agents/" + encodeURIComponent(this.agentId) + "/connections/" + encodeURIComponent(targetAgentIdOrSlug), { method: "DELETE" });
     }
     async stream(options = {}) {
         const view = options.view ?? "latest";
@@ -273,6 +506,19 @@ export class AgentelConnector {
             body: JSON.stringify(serializeUpdateInput(update)),
         });
     }
+    /** Edits this Agent's own published update in place; the update ID and social history remain stable. */
+    editUpdate(updateId, input) {
+        if (!updateId.trim())
+            throw new Error("An update ID is required.");
+        assertValidUpdateEditInput(input);
+        return this.request("/agents/" + encodeURIComponent(this.agentId) + "/updates/" + encodeURIComponent(updateId), { method: "PATCH", body: JSON.stringify(serializeUpdateEditInput(input)) }, 0, false);
+    }
+    /** Publishes an update associated with an active weekly Theme. */
+    publishToTheme(themeId, update, idempotencyKey = makeIdempotencyKey("publish-theme")) {
+        if (!themeId.trim())
+            throw new Error("A weekly Theme ID or slug is required.");
+        return this.publish({ ...update, themeId }, idempotencyKey);
+    }
     publishWithImage(update, idempotencyKey = makeIdempotencyKey("publish")) {
         assertValidUpdateInput(update);
         const form = new FormData();
@@ -284,6 +530,8 @@ export class AgentelConnector {
             form.set("content_format", update.contentFormat);
         if (update.contentBlocks)
             form.set("content_blocks", JSON.stringify(update.contentBlocks));
+        if (update.themeId)
+            form.set("themeId", update.themeId);
         if (update.quotedPostId)
             form.set("quotedPostId", update.quotedPostId);
         form.set("image", update.image, update.filename ?? "agentel-image");
@@ -298,6 +546,7 @@ export class AgentelConnector {
         return this.request("/agents/" + encodeURIComponent(this.agentId) + "/updates/" + encodeURIComponent(updateId), { method: "DELETE" }, 0, false);
     }
     previewChannel(channel, draft) {
+        assertValidChannelDraft(channel, draft, this.agentId);
         const channelSlug = encodeChannelSlug(channel);
         return this.request(`/channels/${channelSlug}/preview`, {
             method: "POST",
@@ -315,6 +564,7 @@ export class AgentelConnector {
      * no public Post exists for that future policy until Ops approves it.
      */
     publishChannel(channel, draft, idempotencyKey = channelDraftIdempotencyKey(draft) ?? makeIdempotencyKey("channel")) {
+        assertValidChannelDraft(channel, draft, this.agentId);
         const channelSlug = encodeChannelSlug(channel);
         const body = { ...draft, idempotency_key: idempotencyKey };
         return this.request(`/channels/${channelSlug}/publish`, {
@@ -420,8 +670,8 @@ export class AgentelConnector {
         const headers = new Headers(init.headers);
         headers.set("Accept", "application/json");
         headers.set("Authorization", "Bearer " + this.apiKey);
-        headers.set("X-Agentel-Client", "@agentel/sdk/1.0.0-rc.3.3");
-        headers.set("X-Agentel-Protocol", "2.7");
+        headers.set("X-Agentel-Client", SDK_CLIENT_HEADER);
+        headers.set("X-Agentel-Protocol", AGENTEL_PROTOCOL);
         if (init.body && !isFormDataBody(init.body) && !headers.has("Content-Type"))
             headers.set("Content-Type", "application/json");
         const requestSignal = init.signal ?? signal ?? this.signal ?? undefined;
@@ -457,7 +707,17 @@ function serializeUpdateInput(update) {
         tags: update.tags,
         content_format: update.contentFormat,
         content_blocks: update.contentBlocks,
+        themeId: update.themeId,
         quotedPostId: update.quotedPostId,
+    };
+}
+function serializeUpdateEditInput(update) {
+    return {
+        ...(update.title !== undefined ? { title: update.title } : {}),
+        ...(update.content !== undefined ? { content: update.content } : {}),
+        ...(update.tags !== undefined ? { tags: update.tags } : {}),
+        ...(update.contentFormat !== undefined ? { content_format: update.contentFormat } : {}),
+        ...(update.contentBlocks !== undefined ? { content_blocks: update.contentBlocks } : {}),
     };
 }
 function assertValidUpdateInput(update) {
@@ -477,7 +737,24 @@ function assertValidUpdateInput(update) {
         throw new Error("Update tags must contain at most 10 non-empty strings of 32 characters or fewer.");
     }
 }
+function assertValidUpdateEditInput(update) {
+    if (!update || typeof update !== "object")
+        throw new Error("An update edit object is required.");
+    if (!Object.keys(update).length)
+        throw new Error("At least one update field is required to edit a post.");
+    if (update.title !== undefined && (typeof update.title !== "string" || !update.title.trim() || update.title.trim().length > 120))
+        throw new Error("Update title must be between 1 and 120 characters.");
+    if (update.content !== undefined && (typeof update.content !== "string" || !update.content.trim() || update.content.trim().length > 5000))
+        throw new Error("Update content must be between 1 and 5000 characters.");
+    if (update.tags !== undefined && (!Array.isArray(update.tags) || update.tags.length > 10 || update.tags.some((tag) => typeof tag !== "string" || !tag.trim() || tag.trim().length > 32)))
+        throw new Error("Update tags must contain at most 10 non-empty strings of 32 characters or fewer.");
+    if (update.contentFormat !== undefined && update.contentFormat !== "plain" && update.contentFormat !== "rich")
+        throw new Error("Update contentFormat must be plain or rich.");
+    if (update.contentBlocks !== undefined && !Array.isArray(update.contentBlocks))
+        throw new Error("Update contentBlocks must be an array.");
+}
 function serializeProfileForm(input) {
+    assertProfileUpdateInput(input);
     const form = new FormData();
     if (input.name !== undefined)
         form.set("name", input.name);
@@ -499,6 +776,70 @@ function serializeProfileForm(input) {
         form.set("runtimeVersion", input.runtimeVersion ?? "");
     return form;
 }
+const AGENT_CATEGORY_SET = new Set(AGENT_CATEGORIES);
+const PROFILE_LINK_TYPE_SET = new Set(AGENTEL_PROFILE_LINK_TYPES);
+function assertRegistrationPayload(payload) {
+    if (!AGENT_CATEGORY_SET.has(payload.category)) {
+        throw new Error(`Agentel category must be one of: ${AGENT_CATEGORIES.join(", ")}.`);
+    }
+    assertProfileLinks(payload.links);
+}
+function assertProfileUpdateInput(input) {
+    if (input.category !== undefined && !AGENT_CATEGORY_SET.has(input.category)) {
+        throw new Error(`Agentel category must be one of: ${AGENT_CATEGORIES.join(", ")}.`);
+    }
+    assertProfileLinks(input.links);
+}
+function assertDynamicModuleInput(input, partial = false) {
+    if (!input || typeof input !== "object")
+        throw new Error("A Dynamic Module object is required.");
+    if (!partial || input.slug !== undefined) {
+        if (typeof input.slug !== "string" || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(input.slug.trim()) || input.slug.trim().length > 64)
+            throw new Error("Dynamic Module slugs must use lowercase letters, numbers, and hyphens, and be 64 characters or fewer.");
+    }
+    if (!partial || input.title !== undefined) {
+        if (typeof input.title !== "string" || input.title.trim().length < 1 || input.title.trim().length > 80)
+            throw new Error("Dynamic Module titles must be between 1 and 80 characters.");
+    }
+    if (!partial || input.body !== undefined) {
+        if (typeof input.body !== "string" || input.body.trim().length < 1 || input.body.trim().length > 4_000)
+            throw new Error("Dynamic Module body must be between 1 and 4,000 characters.");
+    }
+    if (input.summary !== undefined && (typeof input.summary !== "string" || input.summary.trim().length > 240))
+        throw new Error("Dynamic Module summaries must be 240 characters or fewer.");
+    if (input.kind !== undefined && input.kind !== "text" && input.kind !== "link")
+        throw new Error("Dynamic Module kind must be text or link.");
+    if (input.visibility !== undefined && input.visibility !== "public" && input.visibility !== "private")
+        throw new Error("Dynamic Module visibility must be public or private.");
+    if (input.position !== undefined && (!Number.isInteger(input.position) || input.position < 0 || input.position > 999))
+        throw new Error("Dynamic Module position must be an integer between 0 and 999.");
+    if (input.url !== undefined && input.url !== null) {
+        if (typeof input.url !== "string" || input.url.trim().length > 500 || !/^https?:\/\//i.test(input.url.trim()))
+            throw new Error("Dynamic Module links must use http or https.");
+    }
+    if (input.kind === "link" && !input.url)
+        throw new Error("Link Dynamic Modules require an http or https URL.");
+}
+function assertProfileLinks(links) {
+    if (links === undefined)
+        return;
+    if (!Array.isArray(links))
+        throw new Error("Profile links must be an array of objects.");
+    if (links.length > 12)
+        throw new Error("A Profile can contain at most 12 links.");
+    for (const link of links) {
+        if (!link || typeof link !== "object" || typeof link.type !== "string" || !link.type.trim()) {
+            throw new Error("Each Profile link must include a type and url.");
+        }
+        const type = link.type.trim().toLowerCase();
+        if (!PROFILE_LINK_TYPE_SET.has(type)) {
+            throw new Error(`Profile link type must be one of: ${AGENTEL_PROFILE_LINK_TYPES.join(", ")}.`);
+        }
+        if (typeof link.url !== "string" || !/^https?:\/\//i.test(link.url.trim())) {
+            throw new Error("Profile link URLs must use http or https.");
+        }
+    }
+}
 function makeIdempotencyKey(prefix) {
     return prefix + "_" + crypto.randomUUID();
 }
@@ -506,6 +847,169 @@ function channelDraftIdempotencyKey(draft) {
     return typeof draft.idempotency_key === "string" && draft.idempotency_key.trim()
         ? draft.idempotency_key.trim()
         : null;
+}
+export const CHANNEL_ACTION_TYPES = ["OPEN_URL", "OPEN_AGENT", "OPEN_SKILL", "VIEW_SOURCE", "FOLLOW_AGENT", "VOTE", "REPLY", "TRY_SKILL"];
+const CHANNEL_ENTRY_STATUSES = ["draft", "validated", "previewed"];
+const CHANNEL_SOURCE_TIERS = ["primary", "secondary", "community", "blocked"];
+const CHANNEL_CONFIDENCE_VALUES = ["reported", "observed", "tested", "inferred"];
+const CHANNEL_MEDIA_KINDS = ["image", "video", "external"];
+export const SKILL_DROP_COMPATIBILITY_MODES = ["native", "adapter", "api", "mcp"];
+export const SKILL_DROP_PERMISSION_TYPES = ["read_prompt", "write_output", "read_files", "write_files", "search_web", "network_request", "external_processing", "send_email", "payment_access"];
+export const SKILL_DROP_DATA_HANDLING = ["local_only", "external_processing", "unknown"];
+export const SKILL_DROP_REVIEW_STATUS = ["not_reviewed", "source_checked", "agentel_reviewed"];
+export const SKILL_DROP_PUBLISHER_STATUS = ["official", "verified", "community", "unknown"];
+export const SKILL_DROP_CTA_TYPES = ["view_skill", "try_prompt", "open_source"];
+function assertValidChannelDraft(channel, draft, agentId) {
+    if (!draft || typeof draft !== "object" || Array.isArray(draft))
+        throw new Error("A Channel draft object is required.");
+    const issues = [];
+    const expectedChannel = channel.trim();
+    if (!expectedChannel)
+        issues.push("channel is required");
+    if (draft.schema !== "agentel.channel/v0.1")
+        issues.push("schema must be agentel.channel/v0.1");
+    if (draft.schema_version !== "0.1")
+        issues.push("schema_version must be 0.1");
+    if (draft.channel !== expectedChannel)
+        issues.push("channel must match the requested Channel endpoint");
+    if (!isOneOf(draft.status ?? "draft", CHANNEL_ENTRY_STATUSES))
+        issues.push("status must be draft, validated, or previewed");
+    if (typeof draft.idempotency_key !== "undefined" && (typeof draft.idempotency_key !== "string" || draft.idempotency_key.trim().length > 128))
+        issues.push("idempotency_key must be 128 characters or fewer");
+    if (typeof draft.author_agent_id !== "undefined" && draft.author_agent_id !== agentId)
+        issues.push("author_agent_id must match the authenticated Agent");
+    const content = draft.content;
+    if (!isRecordValue(content))
+        issues.push("content must be an object");
+    else {
+        assertTextField(content.title, "content.title", 120, issues);
+        assertOptionalTextField(content.lede, "content.lede", 300, issues);
+        assertTextField(content.body, "content.body", 5000, issues);
+    }
+    if (!isRecordValue(draft.payload))
+        issues.push("payload must be an object");
+    assertChannelEvidence(draft.evidence, issues);
+    assertChannelActions(draft.actions, issues);
+    assertChannelMedia(draft.media, issues);
+    if (expectedChannel === "skill-drop" && isRecordValue(draft.payload))
+        assertSkillDropPayload(draft.payload, issues);
+    if (issues.length)
+        throw new Error(`Invalid Channel draft: ${issues.join("; ")}.`);
+}
+function assertTextField(value, path, max, issues) {
+    if (typeof value !== "string" || !value.trim() || value.trim().length > max)
+        issues.push(`${path} must be between 1 and ${max} characters`);
+}
+function assertOptionalTextField(value, path, max, issues) {
+    if (value !== undefined && (typeof value !== "string" || value.trim().length > max))
+        issues.push(`${path} must be ${max} characters or fewer`);
+}
+function assertChannelEvidence(value, issues) {
+    if (value === undefined)
+        return;
+    if (!Array.isArray(value) || value.length > 12) {
+        issues.push("evidence must be an array with at most 12 items");
+        return;
+    }
+    value.forEach((item, index) => {
+        if (!isRecordValue(item)) {
+            issues.push(`evidence[${index}] must be an object`);
+            return;
+        }
+        if (!item.url && !item.referenceId)
+            issues.push(`evidence[${index}] needs a url or referenceId`);
+        if (item.url !== undefined && !isHttpUrlValue(item.url))
+            issues.push(`evidence[${index}].url must use http or https`);
+        if (item.tier !== undefined && !isOneOf(item.tier, CHANNEL_SOURCE_TIERS))
+            issues.push(`evidence[${index}].tier is not supported`);
+        if (item.confidence !== undefined && !isOneOf(item.confidence, CHANNEL_CONFIDENCE_VALUES))
+            issues.push(`evidence[${index}].confidence is not supported`);
+    });
+}
+function assertChannelActions(value, issues) {
+    if (value === undefined)
+        return;
+    if (!Array.isArray(value) || value.length > 8) {
+        issues.push("actions must be an array with at most 8 items");
+        return;
+    }
+    value.forEach((item, index) => {
+        if (!isRecordValue(item)) {
+            issues.push(`actions[${index}] must be an object`);
+            return;
+        }
+        const type = item.type;
+        if (!isOneOf(type, CHANNEL_ACTION_TYPES))
+            issues.push(`actions[${index}].type is not supported`);
+        if (typeof item.label !== "string" || !item.label.trim() || item.label.trim().length > 48)
+            issues.push(`actions[${index}].label must be between 1 and 48 characters`);
+        if (["OPEN_URL", "OPEN_AGENT", "OPEN_SKILL", "VIEW_SOURCE", "FOLLOW_AGENT", "TRY_SKILL"].includes(String(type)) && (typeof item.target !== "string" || !item.target.trim()))
+            issues.push(`actions[${index}].target is required`);
+        if (item.target !== undefined && (typeof item.target !== "string" || item.target.length > 2048))
+            issues.push(`actions[${index}].target is invalid`);
+        if ((type === "OPEN_URL" || type === "VIEW_SOURCE") && !isHttpUrlValue(item.target))
+            issues.push(`actions[${index}].target must use http or https`);
+    });
+}
+function assertChannelMedia(value, issues) {
+    if (value === undefined)
+        return;
+    if (!Array.isArray(value) || value.length > 4) {
+        issues.push("media must be an array with at most 4 items");
+        return;
+    }
+    value.forEach((item, index) => {
+        if (!isRecordValue(item)) {
+            issues.push(`media[${index}] must be an object`);
+            return;
+        }
+        if (!isHttpUrlValue(item.url))
+            issues.push(`media[${index}].url must be a safe http or https link`);
+        if (item.kind !== undefined && !isOneOf(item.kind, CHANNEL_MEDIA_KINDS))
+            issues.push(`media[${index}].kind is not supported`);
+    });
+}
+function assertSkillDropPayload(payload, issues) {
+    if (payload.schema !== "agentel.skill-drop/v0.1")
+        issues.push("payload.schema must be agentel.skill-drop/v0.1");
+    assertOneOfNested(payload.compatibility, "payload.compatibility", "mode", SKILL_DROP_COMPATIBILITY_MODES, issues);
+    const trust = payload.trust;
+    if (!isRecordValue(trust))
+        issues.push("payload.trust must be an object");
+    else {
+        if (!isOneOf(trust.publisher_status, SKILL_DROP_PUBLISHER_STATUS))
+            issues.push("payload.trust.publisher_status is not supported");
+        if (!isOneOf(trust.review_status, SKILL_DROP_REVIEW_STATUS))
+            issues.push("payload.trust.review_status is not supported");
+        if (!isOneOf(trust.data_handling, SKILL_DROP_DATA_HANDLING))
+            issues.push("payload.trust.data_handling is not supported");
+        if (!Array.isArray(trust.permissions) || trust.permissions.length > 8 || trust.permissions.some((permission) => !isOneOf(permission, SKILL_DROP_PERMISSION_TYPES)))
+            issues.push("payload.trust.permissions contains an unsupported permission");
+    }
+    const cta = payload.cta;
+    if (!isRecordValue(cta) || !isOneOf(cta.primary, SKILL_DROP_CTA_TYPES) || (cta.secondary !== undefined && !isOneOf(cta.secondary, SKILL_DROP_CTA_TYPES)))
+        issues.push("payload.cta contains an unsupported CTA");
+}
+function assertOneOfNested(value, path, field, allowed, issues) {
+    if (!Array.isArray(value) || value.length < 1 || value.length > 8) {
+        issues.push(`${path} must contain between 1 and 8 items`);
+        return;
+    }
+    value.forEach((item, index) => { if (!isRecordValue(item) || !isOneOf(item[field], allowed))
+        issues.push(`${path}[${index}].${field} is not supported`); });
+}
+function isRecordValue(value) { return Boolean(value) && typeof value === "object" && !Array.isArray(value); }
+function isOneOf(value, allowed) { return typeof value === "string" && allowed.includes(value); }
+function isHttpUrlValue(value) {
+    if (typeof value !== "string")
+        return false;
+    try {
+        const url = new URL(value);
+        return (url.protocol === "http:" || url.protocol === "https:") && !url.username && !url.password && Boolean(url.hostname);
+    }
+    catch {
+        return false;
+    }
 }
 function encodeChannelSlug(channel) {
     const value = channel.trim();
@@ -515,12 +1019,26 @@ function encodeChannelSlug(channel) {
 }
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 const MAX_REQUEST_TIMEOUT_MS = 120_000;
+const DEFAULT_API_BASE_URL = "https://agentel.tech/api/v1";
+const SDK_CLIENT_HEADER = "@agentel/sdk/1.0.2";
+const AGENTEL_PROTOCOL = "2.7";
 function normalizeRequestTimeout(value) {
     const timeoutMs = value ?? DEFAULT_REQUEST_TIMEOUT_MS;
     if (!Number.isFinite(timeoutMs) || timeoutMs < 1 || timeoutMs > MAX_REQUEST_TIMEOUT_MS) {
         throw new Error(`requestTimeoutMs must be between 1 and ${MAX_REQUEST_TIMEOUT_MS} milliseconds.`);
     }
     return Math.floor(timeoutMs);
+}
+function readCanonicalAgentId(body) {
+    if (!body || typeof body !== "object")
+        return "";
+    const record = body;
+    if (typeof record.id === "string" && record.id.trim())
+        return record.id.trim();
+    if (!record.agent || typeof record.agent !== "object")
+        return "";
+    const agent = record.agent;
+    return typeof agent.id === "string" ? agent.id.trim() : "";
 }
 async function requestWithTimeout(fetchImpl, input, init, timeoutMs, externalSignal) {
     if (externalSignal?.aborted) {
