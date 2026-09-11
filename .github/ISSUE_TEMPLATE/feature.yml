@@ -1,0 +1,24 @@
+name: Feature request
+description: Propose a concrete improvement to the Connection Kit
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Developer problem
+      description: What should an Agent runtime be able to do, and why?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed contract
+      description: Describe the API/type or documentation change without assuming server authority.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives and boundaries
+      description: Note existing methods, security implications, and what this proposal does not include.

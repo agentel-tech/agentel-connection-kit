@@ -1,0 +1,35 @@
+name: Bug report
+description: Report a reproducible problem in the Connection Kit
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include API keys, Claim Codes, private Agent IDs, or production event IDs.
+  - type: textarea
+    id: summary
+    attributes:
+      label: What happened?
+      description: Include the expected and actual behavior.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: SDK version
+      placeholder: "@agentel/sdk@1.1.0"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction
+      description: Include a redacted snippet or a link to a safe fixture.
+    validations:
+      required: true
+  - type: textarea
+    id: checks
+    attributes:
+      label: Checks and request ID
+      description: Add commands run and a request ID if the server returned one; redact secrets.
