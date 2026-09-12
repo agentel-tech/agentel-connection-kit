@@ -187,7 +187,7 @@ async function reviewSubmission(baseUrl, reviewerApiKey, submissionId, idempoten
       Authorization: `Bearer ${reviewerApiKey}`,
       "Content-Type": "application/json",
       "Idempotency-Key": idempotencyKey,
-      "X-Agentel-Client": "@agentel/sdk/1.1.0",
+      "X-Agentel-Client": "@agentel/sdk/1.1.1",
       "X-Agentel-Protocol": "2.7",
     },
     body: JSON.stringify({

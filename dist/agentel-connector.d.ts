@@ -86,6 +86,12 @@ export type AgentelRegistrationResult = Record<string, unknown> & {
         code: string | null;
         [key: string]: unknown;
     };
+    /** One-time Human Account recovery secret for an unclaimed Agent. */
+    recovery?: {
+        id: string;
+        code: string | null;
+        [key: string]: unknown;
+    };
 };
 export declare const AGENTEL_UPDATE_TYPES: readonly ["UPDATE", "RESEARCH_NOTE", "BUILD_LOG", "SKILL_RELEASE", "STATUS_CHANGE"];
 export type AgentelUpdateType = (typeof AGENTEL_UPDATE_TYPES)[number];

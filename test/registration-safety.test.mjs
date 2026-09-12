@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, stat } from "node:fs/promises";
+import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -13,6 +13,7 @@ const registration = {
   agent: { id: "agent_test_1", slug: "atlas-research" },
   credential: { id: "cred_test_1", key: "agentel_live_test_only" },
   claim: { id: "claim_test_1", code: "claim_test_only", expiresAt: "2030-01-01T00:00:00.000Z" },
+  recovery: { id: "recovery_test_1", code: "recover_test_only" },
 };
 
 test("registration safety rejects an idempotent replay without one-time secrets", () => {
@@ -21,8 +22,54 @@ test("registration safety rejects an idempotent replay without one-time secrets"
       agent: registration.agent,
       credential: { id: registration.credential.id, key: null, shownOnce: false },
       claim: { id: registration.claim.id, code: null, shownOnce: false },
+      recovery: { id: registration.recovery.id, code: null, shownOnce: false },
     }),
     /incomplete credential response/,
+  );
+});
+
+test("registration safety requires an absolute isolated credential directory", async () => {
+  let calls = 0;
+  await assert.rejects(
+    () => registerAndPersist({
+      baseUrl: "https://agentel.test/api/v1",
+      idempotencyKey: "install_test_relative_output",
+      payload: {
+        name: "Relative Output Test",
+        slug: "relative-output-test",
+        description: "A relative output directory safety test.",
+        category: "research",
+        installationId: "test-installation-relative-output",
+      },
+      outputDir: ".agentel-credentials/relative-output-test",
+      fetchImpl: async () => {
+        calls += 1;
+        throw new Error("fetch should not be called");
+      },
+    }),
+    /absolute private directory/,
+  );
+  assert.equal(calls, 0);
+});
+
+test("registration safety rejects a directory containing any registration artifact", async () => {
+  const outputDir = await mkdtemp(join(tmpdir(), "agentel-register-test-"));
+  await writeFile(join(outputDir, "registration-metadata.json"), "existing");
+  await assert.rejects(
+    () => registerAndPersist({
+      baseUrl: "https://agentel.test/api/v1",
+      idempotencyKey: "install_test_existing_artifact",
+      payload: {
+        name: "Existing Artifact Test",
+        slug: "existing-artifact-test",
+        description: "An existing artifact safety test.",
+        category: "research",
+        installationId: "test-installation-existing-artifact",
+      },
+      outputDir,
+      fetchImpl: async () => { throw new Error("fetch should not be called"); },
+    }),
+    /already contains registration-metadata\.json/,
   );
 });
 
@@ -57,12 +104,43 @@ test("registration safety persists the complete response before /me verification
   assert.equal(calls.length, 2);
   assert.match(await readFile(join(outputDir, ".env"), "utf8"), /AGENTEL_AGENT_ID=agent_test_1/);
   assert.match(await readFile(join(outputDir, "claim-code.env"), "utf8"), /AGENTEL_CLAIM_CODE=claim_test_only/);
+  assert.match(await readFile(join(outputDir, "recovery-code.env"), "utf8"), /AGENTEL_RECOVERY_CODE=recover_test_only/);
   assert.match(await readFile(join(outputDir, "registration-response.json"), "utf8"), /agentel_live_test_only/);
   assert.equal((await stat(outputDir)).mode & 0o777, 0o700);
   assert.equal((await stat(join(outputDir, ".env"))).mode & 0o777, 0o600);
   assert.equal((await stat(join(outputDir, "claim-code.env"))).mode & 0o777, 0o600);
+  assert.equal((await stat(join(outputDir, "recovery-code.env"))).mode & 0o777, 0o600);
   assert.equal(new Headers(calls[0].init.headers).get("Idempotency-Key"), "install_test_safe_1");
   assert.equal(new Headers(calls[1].init.headers).get("Authorization"), "Bearer agentel_live_test_only");
+});
+
+test("registration safety keeps persisted credentials when the post-save /me check fails", async () => {
+  const outputDir = await mkdtemp(join(tmpdir(), "agentel-register-test-"));
+  let calls = 0;
+  await assert.rejects(
+    () => registerAndPersist({
+      baseUrl: "https://agentel.test/api/v1",
+      idempotencyKey: "install_test_me_failure",
+      payload: {
+        name: "Me Failure Test",
+        slug: "me-failure-test",
+        description: "A persistence-before-verification test.",
+        category: "research",
+        installationId: "test-installation-me-failure",
+      },
+      outputDir,
+      fetchImpl: async () => {
+        calls += 1;
+        if (calls === 1) return new Response(JSON.stringify(registration), { status: 201 });
+        return new Response(JSON.stringify({ error: { code: "INVALID_CREDENTIAL" } }), { status: 401 });
+      },
+    }),
+    /Credentials were saved, but \/me identity verification failed/,
+  );
+  assert.equal(calls, 2);
+  assert.match(await readFile(join(outputDir, ".env"), "utf8"), /AGENTEL_AGENT_ID=agent_test_1/);
+  assert.match(await readFile(join(outputDir, "claim-code.env"), "utf8"), /AGENTEL_CLAIM_CODE=claim_test_only/);
+  assert.match(await readFile(join(outputDir, "recovery-code.env"), "utf8"), /AGENTEL_RECOVERY_CODE=recover_test_only/);
 });
 
 test("registration safety requires an explicit slug and installation identity", async () => {

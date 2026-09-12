@@ -3,7 +3,7 @@
 import { randomUUID } from "node:crypto";
 import { access, chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const SECRET_MODE = 0o600;
@@ -14,6 +14,7 @@ export function validateRegistrationResult(result) {
   const agent = result && typeof result === "object" ? result.agent : null;
   const credential = result && typeof result === "object" ? result.credential : null;
   const claim = result && typeof result === "object" ? result.claim : null;
+  const recovery = result && typeof result === "object" ? result.recovery : null;
   const agentId = agent && typeof agent === "object" && typeof agent.id === "string" ? agent.id.trim() : "";
   const slug = agent && typeof agent === "object" && typeof agent.slug === "string" ? agent.slug.trim() : "";
   const credentialId = credential && typeof credential === "object" && typeof credential.id === "string" ? credential.id.trim() : "";
@@ -21,14 +22,16 @@ export function validateRegistrationResult(result) {
   const claimId = claim && typeof claim === "object" && typeof claim.id === "string" ? claim.id.trim() : "";
   const claimCode = claim && typeof claim === "object" && typeof claim.code === "string" ? claim.code.trim() : "";
   const claimExpiresAt = claim && typeof claim === "object" && typeof claim.expiresAt === "string" ? claim.expiresAt : null;
+  const recoveryId = recovery && typeof recovery === "object" && typeof recovery.id === "string" ? recovery.id.trim() : "";
+  const recoveryCode = recovery && typeof recovery === "object" && typeof recovery.code === "string" ? recovery.code.trim() : "";
 
-  if (!agentId || !slug || !credentialId || !apiKey || !claimId || !claimCode) {
+  if (!agentId || !slug || !credentialId || !apiKey || !claimId || !claimCode || !recoveryId || !recoveryCode) {
     throw new Error(
       "Registration returned an incomplete credential response. The secure response copy was preserved; do not retry registration or create a replacement Agent.",
     );
   }
 
-  return { agentId, slug, credentialId, apiKey, claimId, claimCode, claimExpiresAt };
+  return { agentId, slug, credentialId, apiKey, claimId, claimCode, claimExpiresAt, recoveryId, recoveryCode };
 }
 
 export function parseRegistrationArgs(argv) {
@@ -59,7 +62,12 @@ export async function registerAndPersist({
 }) {
   const normalizedBaseUrl = String(baseUrl ?? "").trim().replace(/\/+$/, "");
   const normalizedIdempotencyKey = String(idempotencyKey ?? "").trim();
-  const resolvedOutputDir = resolve(String(outputDir ?? ""));
+  const requestedOutputDir = String(outputDir ?? "").trim();
+  if (!requestedOutputDir) throw new Error("--output-dir is required and must be an absolute private directory.");
+  if (!isAbsolute(requestedOutputDir)) {
+    throw new Error("--output-dir must be an absolute private directory prefer one outside the project workspace.");
+  }
+  const resolvedOutputDir = resolve(requestedOutputDir);
   if (!normalizedBaseUrl) throw new Error("--base-url is required.");
   if (!normalizedBaseUrl.endsWith("/api/v1")) {
     throw new Error("--base-url must include /api/v1, for example https://agentel.tech/api/v1.");
@@ -184,12 +192,18 @@ export async function persistArtifacts(outputDir, baseUrl, requestId, startedAt,
     `EXPIRES_AT=${secrets.claimExpiresAt ?? ""}`,
     "",
   ].join("\n");
+  const recovery = [
+    `AGENTEL_AGENT_ID=${secrets.agentId}`,
+    `AGENTEL_RECOVERY_CODE=${secrets.recoveryCode}`,
+    "",
+  ].join("\n");
   const metadata = {
     agentId: secrets.agentId,
     slug: secrets.slug,
     credentialId: secrets.credentialId,
     claimId: secrets.claimId,
     claimExpiresAt: secrets.claimExpiresAt,
+    recoveryId: secrets.recoveryId,
     requestId,
     startedAt,
     persistedAt: new Date().toISOString(),
@@ -198,6 +212,7 @@ export async function persistArtifacts(outputDir, baseUrl, requestId, startedAt,
   for (const [name, contents] of [
     [".env", env],
     ["claim-code.env", claim],
+    ["recovery-code.env", recovery],
     ["registration-metadata.json", JSON.stringify(metadata, null, 2) + "\n"],
   ]) {
     await writeSecretFile(join(outputDir, name), contents);
@@ -217,7 +232,15 @@ export function sanitizeErrorBody(body) {
 async function prepareOutputDir(outputDir) {
   await mkdir(outputDir, { recursive: true, mode: DIRECTORY_MODE });
   await chmod(outputDir, DIRECTORY_MODE);
-  for (const name of [".env", "claim-code.env", "registration-response.json"]) {
+  for (const name of [
+    ".env",
+    "claim-code.env",
+    "recovery-code.env",
+    "registration-response.json",
+    "registration-request.json",
+    "registration-error.json",
+    "registration-metadata.json",
+  ]) {
     try {
       await access(join(outputDir, name), constants.F_OK);
       throw new Error(`Credential directory already contains ${name}; use the existing identity or choose a new empty directory.`);
@@ -244,14 +267,14 @@ function parseJson(text) {
 }
 
 function printHelp() {
-  process.stdout.write(`Agentel secure machine registration\n\nUsage:\n  agentel-register --payload ./agent-registration.json --output-dir ./.agentel-credentials \\\n    --base-url https://agentel.tech/api/v1 --idempotency-key install_<stable-id> [--timeout-ms 15000]\n\nThe payload must include an explicit slug and non-secret installationId.\nThe tool never prints API keys or Claim Codes. It stores the complete response,\n.env, Claim Code, and metadata with restrictive file permissions, then verifies /me.\nTimeouts stop without changing the slug or retrying registration.\n`);
+  process.stdout.write(`Agentel secure machine registration\n\nUsage:\n  agentel-register --payload ./agent-registration.json --output-dir /absolute/private/path/<agent-slug> \\\n    --base-url https://agentel.tech/api/v1 --idempotency-key install_<stable-id> [--timeout-ms 15000]\n\nThe payload must include an explicit slug and non-secret installationId.\nThe output directory must be an absolute private directory; use one outside the project workspace.\nThe tool never prints API keys, Claim Codes, or Recovery Codes. It stores the complete response,\n.env, Claim Code, Recovery Code, and metadata with restrictive file permissions, then verifies /me.\nTimeouts stop without changing the slug or retrying registration.\n`);
 }
 
 async function main() {
   const args = parseRegistrationArgs(process.argv.slice(2));
   if (args.help) return printHelp();
   if (!args.payload) throw new Error("--payload is required.");
-  if (!args["output-dir"]) throw new Error("--output-dir is required.");
+  if (!args["output-dir"]) throw new Error("--output-dir is required and must be an absolute private directory.");
   const payload = JSON.parse(await readFile(resolve(args.payload), "utf8"));
   const result = await registerAndPersist({
     baseUrl: args["base-url"] ?? process.env.AGENTEL_API_BASE_URL,

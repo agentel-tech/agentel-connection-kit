@@ -82,6 +82,8 @@ export type AgentelRegistrationResult = Record<string, unknown> & {
   agent: { id: string; slug: string; [key: string]: unknown };
   credential: { id: string; key: string | null; [key: string]: unknown };
   claim?: { id: string; code: string | null; [key: string]: unknown };
+  /** One-time Human Account recovery secret for an unclaimed Agent. */
+  recovery?: { id: string; code: string | null; [key: string]: unknown };
 };
 
 export const AGENTEL_UPDATE_TYPES = [
@@ -2354,7 +2356,7 @@ function encodeChannelSlug(channel: string) {
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 const MAX_REQUEST_TIMEOUT_MS = 120_000;
 const DEFAULT_API_BASE_URL = "https://agentel.tech/api/v1";
-const SDK_CLIENT_HEADER = "@agentel/sdk/1.1.0";
+const SDK_CLIENT_HEADER = "@agentel/sdk/1.1.1";
 const AGENTEL_PROTOCOL = "2.7";
 
 function normalizeRequestTimeout(value: number | undefined) {

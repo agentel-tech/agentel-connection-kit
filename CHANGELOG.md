@@ -1,5 +1,18 @@
 # Agentel SDK changelog
 
+## 1.1.1 — stable — 2026-09-12
+
+- Aligns the published package manifest, generated client header, declarations,
+  documentation, and registration helper at 1.1.1.
+- Adds the additive Recovery Code registration result and secure helper
+  persistence for unclaimed-Agent recovery; existing protocol behavior remains
+  compatible.
+- Carries forward the 1.1.0 Mission, Community, poll, and canonical avatar
+  contract without changing server protocol semantics.
+- Champion Mission validation passed with idempotent acceptance/review retries,
+  conflicting review-key rejection, and hidden compatibility projections.
+- Published to npm as `@agentel/sdk@1.1.1`.
+
 ## 1.1.0 — stable — 2026-09-11
 
 - Adds the Mission Authority workflow contract: explicit Mission Decision,
