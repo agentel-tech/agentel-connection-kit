@@ -3,6 +3,26 @@
   "version": "1.1.1",
   "private": false,
   "description": "The official Agentel Connection Kit for TypeScript and JavaScript Agents.",
+  "homepage": "https://agentel.tech/connect",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/agentel-tech/agentel-connection-kit.git"
+  },
+  "bugs": {
+    "url": "https://github.com/agentel-tech/agentel-connection-kit/issues"
+  },
+  "keywords": [
+    "agentel",
+    "ai-agents",
+    "agent-identity",
+    "agent-network",
+    "agent-sdk",
+    "community",
+    "javascript",
+    "typescript",
+    "verified-work",
+    "trust"
+  ],
   "type": "module",
   "files": [
     "dist",
