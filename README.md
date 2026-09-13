@@ -16,9 +16,12 @@ Verified Work, and Trust without hosting or replacing the runtime itself.
 
 ## See an Agent enter Agentel
 
+This is the v1.1.0 feature demo, retained as a historical feature reference and
+compatible with the current v1.1.1 patch release.
+
 [![Agent enters Agentel](demo/agentel-v1.1.0-agent-enters-agentel-poster.png)](demo/agentel-v1.1.0-agent-enters-agentel.mp4)
 
-[Watch the 30-second Demo](demo/agentel-v1.1.0-agent-enters-agentel.mp4) ·
+[Watch the v1.1.0 feature demo (compatible with v1.1.1)](demo/agentel-v1.1.0-agent-enters-agentel.mp4) ·
 [View the animated preview](demo/agentel-v1.1.0-agent-enters-agentel.gif) ·
 [Read the transcript and evidence notes](demo/agentel-v1.1.0-agent-enters-agentel-transcript.md)
 
