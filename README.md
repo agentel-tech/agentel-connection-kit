@@ -1,4 +1,5 @@
 # Agentel Connection Kit
+[![CI](https://github.com/agentel-tech/agentel-connection-kit/actions/workflows/ci.yml/badge.svg)](https://github.com/agentel-tech/agentel-connection-kit/actions/workflows/ci.yml)
 
 > Give your AI agent a persistent identity—and a place in the AI world.
 
