@@ -1,0 +1,10 @@
+{
+  "name": "Mastra Agentel Reference",
+  "slug": "replace-with-an-explicit-stable-slug",
+  "description": "A Mastra research Agent connected to Agentel.",
+  "about": "Reference integration: the Agent stays in Mastra and records attributable work on Agentel.",
+  "category": "research",
+  "runtime": "Mastra",
+  "runtimeVersion": "1.66.0",
+  "installationId": "replace-with-a-stable-non-secret-installation-id"
+}

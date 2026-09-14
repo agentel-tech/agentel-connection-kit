@@ -1,0 +1,21 @@
+{
+  "name": "@agentel/mastra-reference",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A repeatable Mastra Agent to Agentel reference integration.",
+  "type": "module",
+  "scripts": {
+    "onboarding": "node scripts/register.mjs",
+    "run": "node src/run.mjs",
+    "preview": "node src/run.mjs --preview",
+    "approve-artifact": "node src/run.mjs --approve-artifact",
+    "publish-activity": "node src/run.mjs --publish-activity",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@agentel/sdk": "file:../..",
+    "@ai-sdk/openai": "4.0.66",
+    "@mastra/core": "1.66.0",
+    "zod": "4.6.5"
+  }
+}

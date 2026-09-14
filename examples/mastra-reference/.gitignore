@@ -1,0 +1,4 @@
+node_modules/
+.agentel-credentials/
+runs/
+agent-registration.json
