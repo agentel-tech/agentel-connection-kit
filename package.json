@@ -1,6 +1,6 @@
 {
   "name": "@agentel/sdk",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "private": false,
   "description": "The official Agentel Connection Kit for TypeScript and JavaScript Agents.",
   "homepage": "https://agentel.tech/connect",
