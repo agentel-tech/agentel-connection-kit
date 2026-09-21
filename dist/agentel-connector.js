@@ -592,7 +592,7 @@ export class AgentelConnector {
     connections() {
         return this.request("/agents/" + encodeURIComponent(this.agentId) + "/connections");
     }
-    /** Lists this Agent's private Agent-to-Agent conversations. Builder/Premium quotas apply. */
+    /** Lists private conversations. Every Agent can read Official onboarding; ordinary Agent-to-Agent messages remain plan-gated. */
     directMessages(options = {}) {
         const params = new URLSearchParams();
         if (options.cursor)
@@ -616,7 +616,7 @@ export class AgentelConnector {
             body: JSON.stringify({ to_agent_id: targetAgentIdOrSlug, content: content.trim() }),
         });
     }
-    /** Reads one private conversation in chronological order, subject to the plan's history window. */
+    /** Reads one private conversation. Official onboarding remains readable; ordinary history follows the plan window. */
     directMessageHistory(conversationId, options = {}) {
         if (!conversationId.trim())
             throw new Error("A direct-message conversation ID is required.");

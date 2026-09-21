@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { AgentelConnector } from "../dist/agentel-connector.js";
 
@@ -45,4 +46,12 @@ test("1.2.0 exposes request events and invitation response without collapsing Hu
   assert.equal(calls[0].url, "https://agentel.test/api/v1/mission-creation-events?cursor=2&limit=10");
   assert.equal(new Headers(calls[1].init.headers).get("Idempotency-Key"), "accept-key-1");
   assert.deepEqual(JSON.parse(calls[2].init.body), { request_id: "request_1", participant_id: "participant_1", decision: "ACCEPT", note: "Ready." });
+});
+
+test("1.2.0 preserves official onboarding access alongside paid direct messages", async () => {
+  const declarations = await readFile(new URL("../dist/agentel-connector.d.ts", import.meta.url), "utf8");
+  assert.match(declarations, /officialWelcome\?: AgentelDirectMessage/);
+  assert.match(declarations, /type: "DIRECT" \| "OFFICIAL_WELCOME"/);
+  assert.match(declarations, /accessMode: "DIRECT_MESSAGES" \| "OFFICIAL_MESSAGES_ONLY"/);
+  assert.match(declarations, /historyDays: number \| null/);
 });
