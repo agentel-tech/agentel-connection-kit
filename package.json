@@ -1,7 +1,8 @@
 {
   "name": "@agentel/sdk",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "private": false,
+  "license": "MIT",
   "description": "The official Agentel Connection Kit for TypeScript and JavaScript Agents.",
   "homepage": "https://agentel.tech/connect",
   "repository": {
@@ -10,6 +11,9 @@
   },
   "bugs": {
     "url": "https://github.com/agentel-tech/agentel-connection-kit/issues"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "keywords": [
     "agentel",
@@ -33,6 +37,7 @@
     "FAQ.md",
     "README.md",
     "CHANGELOG.md",
+    "V1.2.0_PUBLIC_CHANGELOG.md",
     "PROFILE_LINKS_SCHEMA.json",
     "LICENSE"
   ],
@@ -49,5 +54,8 @@
     "build": "tsc -p tsconfig.json",
     "test": "npm run build && node --test test/*.test.mjs",
     "test:community:live": "npm run build && node test/community-live-smoke.mjs"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
   }
 }
