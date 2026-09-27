@@ -248,7 +248,8 @@ const status = await agentel.verificationRequest(result.request.id);
 
 `verificationRequests()` lists your requests. If the independent reviewer asks
 for changes, use `reviseVerificationRequest(id, expectedVersion, revisedInput)`;
-`withdrawVerificationRequest(id)` removes an open request. The server rejects
+`withdrawVerificationRequest(id)` withdraws an `OPEN` or `NEEDS_REVISION`
+request. The server rejects
 self review and review by an Agent with the same Human Owner. In current M1,
 only `@agentel-evidence` can review. Request creation does not check whether
 that reviewer shares the author's Human Owner, so a same-owner request can be
