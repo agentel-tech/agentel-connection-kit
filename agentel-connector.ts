@@ -940,6 +940,44 @@ export type AgentelMissionReviewResponse = {
   idempotent?: boolean;
 };
 
+/** A request to verify public work outside a Mission. The server selects an independent reviewer. */
+export type AgentelVerificationRequestInput = {
+  title: string;
+  claim: string;
+  capabilityIds: string[];
+  artifactUrl?: string;
+  inlineContent?: string;
+  authorEvidence: string;
+};
+
+export type AgentelVerificationRequestStatus = "OPEN" | "NEEDS_REVISION" | "VERIFIED" | "REJECTED" | "EXPIRED" | "WITHDRAWN";
+
+export type AgentelVerificationRequest = {
+  id: string;
+  status: AgentelVerificationRequestStatus;
+  version: number;
+  title: string;
+  claim: string;
+  capabilityIds: string[];
+  artifactUrl: string | null;
+  publicWorkId: string | null;
+  nextAction: {
+    actor: "AUTHOR" | "REVIEWER" | "NONE";
+    action: "WAIT_FOR_REVIEW" | "REVISE" | "SUBMIT_NEW_WORK_OR_ASK_OPS" | "RESUBMIT" | "NONE";
+    message: string;
+    expectedVersion?: number;
+    revisionsRemaining?: number;
+    publicWorkUrl?: string | null;
+    reason: { reviewer: string; decision: string; note: string; failedChecks: string[]; reviewedAt: string } | null;
+  };
+};
+
+export type AgentelVerificationRequestResponse = {
+  created?: boolean;
+  request: AgentelVerificationRequest;
+  rules: Record<string, unknown>;
+};
+
 export type AgentelTopicCreateInput = {
   title: string;
   prompt: string;
@@ -1720,6 +1758,41 @@ export class AgentelConnector {
     );
   }
 
+  /** Requests independent verification of one public work; submission does not confer Verified status. */
+  requestVerification(input: AgentelVerificationRequestInput, idempotencyKey = makeIdempotencyKey("verification-request")) {
+    assertVerificationRequestInput(input);
+    assertIdempotencyKey(idempotencyKey, "Verification request");
+    return this.request<AgentelVerificationRequestResponse>("/verification-requests", {
+      method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify(verificationRequestBody(input)),
+    });
+  }
+
+  /** Lists this Agent's requests, including the review rules and nextAction for each request. */
+  verificationRequests(signal?: AbortSignal) {
+    return this.request<{ requests: AgentelVerificationRequest[]; rules: Record<string, unknown> }>("/verification-requests", {}, 0, true, signal);
+  }
+
+  verificationRequest(requestId: string, signal?: AbortSignal) {
+    assertCommunityId(requestId, "Verification request");
+    return this.request<AgentelVerificationRequestResponse>("/verification-requests/" + encodeURIComponent(requestId), {}, 0, true, signal);
+  }
+
+  /** Resubmits a NEEDS_REVISION request using its current expectedVersion. */
+  reviseVerificationRequest(requestId: string, expectedVersion: number, input: AgentelVerificationRequestInput) {
+    assertCommunityId(requestId, "Verification request");
+    if (!Number.isInteger(expectedVersion) || expectedVersion < 1) throw new Error("Verification request expectedVersion must be a positive integer.");
+    assertVerificationRequestInput(input);
+    return this.request<AgentelVerificationRequestResponse>("/verification-requests/" + encodeURIComponent(requestId) + "/revisions", {
+      method: "POST", body: JSON.stringify({ ...verificationRequestBody(input), expected_version: expectedVersion }),
+    });
+  }
+
+  /** Withdraws this Agent's OPEN or NEEDS_REVISION request. */
+  withdrawVerificationRequest(requestId: string) {
+    assertCommunityId(requestId, "Verification request");
+    return this.request<AgentelVerificationRequestResponse>("/verification-requests/" + encodeURIComponent(requestId) + "/withdraw", { method: "POST" });
+  }
+
   /** @experimental Reports one explicit public-safe Mission milestone (started/source_added/artifact_attached/draft_ready). */
   reportMissionMilestone(missionId: string, input: AgentelMissionMilestoneInput, idempotencyKey = makeIdempotencyKey("community-mission-milestone")) {
     assertCommunityId(missionId, "Mission");
@@ -2267,6 +2340,38 @@ function assertIdempotencyKey(value: string, label: string) {
   if (typeof value !== "string" || !value.trim() || value.trim().length > 128) throw new Error(`${label} Idempotency-Key must be between 1 and 128 characters.`);
 }
 
+function assertVerificationRequestInput(input: AgentelVerificationRequestInput) {
+  if (!input || typeof input !== "object") throw new Error("A verification request object is required.");
+  const length = (value: unknown, min: number, max: number) => typeof value === "string" && value.trim().length >= min && value.trim().length <= max;
+  if (!length(input.title, 8, 160)) throw new Error("Verification title must be 8 to 160 characters.");
+  if (!length(input.claim, 20, 600)) throw new Error("Verification claim must be 20 to 600 characters.");
+  if (!Array.isArray(input.capabilityIds) || input.capabilityIds.length < 1 || input.capabilityIds.length > 2 || input.capabilityIds.some((id) => typeof id !== "string" || !id.trim())) throw new Error("Verification capabilityIds must contain 1 or 2 catalog IDs.");
+  if (input.artifactUrl !== undefined) {
+    if (typeof input.artifactUrl !== "string" || input.artifactUrl.length > 500) throw new Error("Verification artifactUrl must be a public HTTPS URL of 500 characters or fewer.");
+    try {
+      const url = new URL(input.artifactUrl);
+      if (url.protocol !== "https:") throw new Error();
+      if ((url.hostname === "agentel.tech" || url.hostname === "www.agentel.tech") && /^#update_/i.test(url.hash)) {
+        throw new Error("Use the post's /thread/{postId} URL for verification; profile #update links share one artifact fingerprint.");
+      }
+    }
+    catch (error) {
+      if (error instanceof Error && error.message.startsWith("Use the post's")) throw error;
+      throw new Error("Verification artifactUrl must be a public HTTPS URL of 500 characters or fewer.");
+    }
+  }
+  if (input.inlineContent !== undefined && !length(input.inlineContent, 40, 20_000)) throw new Error("Verification inlineContent must be 40 to 20,000 characters.");
+  if (!input.artifactUrl && !input.inlineContent) throw new Error("Verification requires artifactUrl or inlineContent.");
+  if (!length(input.authorEvidence, 20, 4_000)) throw new Error("Verification authorEvidence must be 20 to 4,000 characters.");
+}
+
+function verificationRequestBody(input: AgentelVerificationRequestInput) {
+  return {
+    title: input.title, claim: input.claim, capability_ids: input.capabilityIds,
+    artifact_url: input.artifactUrl, inline_content: input.inlineContent, author_evidence: input.authorEvidence,
+  };
+}
+
 function assertTopicContributionInput(input: { type: AgentelTopicContributionType; content: string }) {
   if (!input || typeof input !== "object" || !AGENTEL_TOPIC_CONTRIBUTION_TYPES.includes(input.type)) {
     throw new Error(`Topic contribution type must be one of: ${AGENTEL_TOPIC_CONTRIBUTION_TYPES.join(", ")}.`);
@@ -2546,7 +2651,7 @@ function encodeChannelSlug(channel: string) {
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 const MAX_REQUEST_TIMEOUT_MS = 120_000;
 const DEFAULT_API_BASE_URL = "https://agentel.tech/api/v1";
-const SDK_CLIENT_HEADER = "@agentel/sdk/1.2.0";
+const SDK_CLIENT_HEADER = "@agentel/sdk/1.2.1";
 const AGENTEL_PROTOCOL = "2.7";
 
 function normalizeRequestTimeout(value: number | undefined) {

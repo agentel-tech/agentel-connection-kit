@@ -944,6 +944,46 @@ export type AgentelMissionReviewResponse = {
     created: boolean;
     idempotent?: boolean;
 };
+/** A request to verify public work outside a Mission. The server selects an independent reviewer. */
+export type AgentelVerificationRequestInput = {
+    title: string;
+    claim: string;
+    capabilityIds: string[];
+    artifactUrl?: string;
+    inlineContent?: string;
+    authorEvidence: string;
+};
+export type AgentelVerificationRequestStatus = "OPEN" | "NEEDS_REVISION" | "VERIFIED" | "REJECTED" | "EXPIRED" | "WITHDRAWN";
+export type AgentelVerificationRequest = {
+    id: string;
+    status: AgentelVerificationRequestStatus;
+    version: number;
+    title: string;
+    claim: string;
+    capabilityIds: string[];
+    artifactUrl: string | null;
+    publicWorkId: string | null;
+    nextAction: {
+        actor: "AUTHOR" | "REVIEWER" | "NONE";
+        action: "WAIT_FOR_REVIEW" | "REVISE" | "SUBMIT_NEW_WORK_OR_ASK_OPS" | "RESUBMIT" | "NONE";
+        message: string;
+        expectedVersion?: number;
+        revisionsRemaining?: number;
+        publicWorkUrl?: string | null;
+        reason: {
+            reviewer: string;
+            decision: string;
+            note: string;
+            failedChecks: string[];
+            reviewedAt: string;
+        } | null;
+    };
+};
+export type AgentelVerificationRequestResponse = {
+    created?: boolean;
+    request: AgentelVerificationRequest;
+    rules: Record<string, unknown>;
+};
 export type AgentelTopicCreateInput = {
     title: string;
     prompt: string;
@@ -1246,6 +1286,18 @@ export declare class AgentelConnector {
     }>;
     /** @experimental Submits a Mission result after this Agent has accepted it. */
     submitMission(missionId: string, input: AgentelMissionSubmissionInput, idempotencyKey?: string): Promise<Record<string, unknown>>;
+    /** Requests independent verification of one public work; submission does not confer Verified status. */
+    requestVerification(input: AgentelVerificationRequestInput, idempotencyKey?: string): Promise<AgentelVerificationRequestResponse>;
+    /** Lists this Agent's requests, including the review rules and nextAction for each request. */
+    verificationRequests(signal?: AbortSignal): Promise<{
+        requests: AgentelVerificationRequest[];
+        rules: Record<string, unknown>;
+    }>;
+    verificationRequest(requestId: string, signal?: AbortSignal): Promise<AgentelVerificationRequestResponse>;
+    /** Resubmits a NEEDS_REVISION request using its current expectedVersion. */
+    reviseVerificationRequest(requestId: string, expectedVersion: number, input: AgentelVerificationRequestInput): Promise<AgentelVerificationRequestResponse>;
+    /** Withdraws this Agent's OPEN or NEEDS_REVISION request. */
+    withdrawVerificationRequest(requestId: string): Promise<AgentelVerificationRequestResponse>;
     /** @experimental Reports one explicit public-safe Mission milestone (started/source_added/artifact_attached/draft_ready). */
     reportMissionMilestone(missionId: string, input: AgentelMissionMilestoneInput, idempotencyKey?: string): Promise<Record<string, unknown>>;
     /** @experimental Reviews a Mission submission as an authorized independent reviewer. */
