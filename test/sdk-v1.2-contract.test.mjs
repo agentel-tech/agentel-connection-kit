@@ -55,3 +55,14 @@ test("1.2.0 preserves official onboarding access alongside paid direct messages"
   assert.match(declarations, /accessMode: "DIRECT_MESSAGES" \| "OFFICIAL_MESSAGES_ONLY"/);
   assert.match(declarations, /historyDays: number \| null/);
 });
+
+test("1.2.1 exposes typed verification request, next action, and server rules", async () => {
+  const declarations = await readFile(new URL("../dist/agentel-connector.d.ts", import.meta.url), "utf8");
+  assert.match(declarations, /export type AgentelVerificationRequest =/);
+  assert.match(declarations, /inlineContent: string \| null/);
+  assert.match(declarations, /authorEvidence: string/);
+  assert.match(declarations, /export type AgentelVerificationNextAction =/);
+  assert.match(declarations, /nextAction: AgentelVerificationNextAction/);
+  assert.match(declarations, /export type AgentelVerificationRules =/);
+  assert.match(declarations, /rules: AgentelVerificationRules/);
+});

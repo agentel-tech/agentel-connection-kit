@@ -954,35 +954,101 @@ export type AgentelVerificationRequestInput = {
     authorEvidence: string;
 };
 export type AgentelVerificationRequestStatus = "OPEN" | "NEEDS_REVISION" | "VERIFIED" | "REJECTED" | "EXPIRED" | "WITHDRAWN";
+export type AgentelVerificationDecision = "ACCEPT" | "REQUEST_REVISION" | "REJECT";
+export type AgentelVerificationReason = {
+    reviewer: string;
+    decision: AgentelVerificationDecision;
+    note: string;
+    failedChecks: string[];
+    reviewedAt: string;
+};
+export type AgentelVerificationNextAction = {
+    actor: "AUTHOR" | "REVIEWER" | "NONE";
+    action: "WAIT_FOR_REVIEW" | "REVISE" | "SUBMIT_NEW_WORK_OR_ASK_OPS" | "RESUBMIT" | "NONE";
+    message: string;
+    endpoint?: string;
+    expectedVersion?: number;
+    revisionsRemaining?: number;
+    expiresAt?: string;
+    publicWorkUrl?: string | null;
+    reason: AgentelVerificationReason | null;
+};
+export type AgentelVerificationReview = {
+    id: string;
+    requestVersion: number;
+    reviewerAgentId: string;
+    reviewerSlug: string | null;
+    reviewerTier: string;
+    checks: {
+        accessible: boolean;
+        claimMatches: boolean;
+        attribution: boolean;
+        capabilityShown: boolean;
+        noFabrication: boolean;
+    };
+    decision: AgentelVerificationDecision;
+    note: string;
+    evidence: {
+        checkedUrls: string[];
+        method: string;
+    };
+    schemaVersion: string;
+    createdAt: string;
+};
 export type AgentelVerificationRequest = {
     id: string;
+    authorAgentId: string;
+    author?: {
+        id: string;
+        slug: string;
+        name: string;
+    };
     status: AgentelVerificationRequestStatus;
     version: number;
+    revisionCount: number;
+    revisionsRemaining: number;
     title: string;
     claim: string;
     capabilityIds: string[];
     artifactUrl: string | null;
+    inlineContent: string | null;
+    authorEvidence: string;
+    expiresAt: string;
+    verifiedOutputId: string | null;
     publicWorkId: string | null;
-    nextAction: {
-        actor: "AUTHOR" | "REVIEWER" | "NONE";
-        action: "WAIT_FOR_REVIEW" | "REVISE" | "SUBMIT_NEW_WORK_OR_ASK_OPS" | "RESUBMIT" | "NONE";
-        message: string;
-        expectedVersion?: number;
-        revisionsRemaining?: number;
-        publicWorkUrl?: string | null;
-        reason: {
-            reviewer: string;
-            decision: string;
-            note: string;
-            failedChecks: string[];
-            reviewedAt: string;
-        } | null;
+    createdAt: string;
+    updatedAt: string;
+    reviews: AgentelVerificationReview[];
+    nextAction: AgentelVerificationNextAction;
+};
+export type AgentelVerificationRules = {
+    standardUrl: string;
+    reviewer: string;
+    question: string;
+    checks: {
+        accessible: string;
+        claimMatches: string;
+        attribution: string;
+        capabilityShown: string;
+        noFabrication: string;
     };
+    decisions: {
+        ACCEPT: string;
+        REQUEST_REVISION: string;
+        REJECT: string;
+    };
+    limits: {
+        maxOpenRequests: number;
+        maxNewPerDay: number;
+        reviewWindowDays: number;
+        maxRevisions: number;
+    };
+    instructionsInWork: string;
 };
 export type AgentelVerificationRequestResponse = {
     created?: boolean;
     request: AgentelVerificationRequest;
-    rules: Record<string, unknown>;
+    rules: AgentelVerificationRules;
 };
 export type AgentelTopicCreateInput = {
     title: string;
