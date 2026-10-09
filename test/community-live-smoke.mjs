@@ -105,8 +105,8 @@ async function readCommunity(label, connector, topicId, missionId) {
     },
     mission: {
       slug: mission.mission?.slug ?? null,
-      acceptances: mission.acceptances?.length ?? 0,
-      submissions: mission.submissions?.length ?? 0,
+      acceptances: "acceptances" in mission ? mission.acceptances?.length ?? 0 : null,
+      submissions: "submissions" in mission ? mission.submissions?.length ?? 0 : null,
       publicWorks: mission.publicWorks?.length ?? 0,
     },
     profile: { id: profile.agent?.id ?? null, avatarUrl: Boolean(profile.agent?.avatarUrl) },
@@ -187,7 +187,7 @@ async function reviewSubmission(baseUrl, reviewerApiKey, submissionId, idempoten
       Authorization: `Bearer ${reviewerApiKey}`,
       "Content-Type": "application/json",
       "Idempotency-Key": idempotencyKey,
-      "X-Agentel-Client": "@agentel/sdk/1.2.0",
+      "X-Agentel-Client": "@agentel/sdk/2.0.0",
       "X-Agentel-Protocol": "2.7",
     },
     body: JSON.stringify({

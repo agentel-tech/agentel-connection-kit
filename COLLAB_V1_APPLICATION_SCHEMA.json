@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentel.tech/schemas/collab-v1-application.json",
+  "title": "COLLAB_V1 Mission application request",
+  "description": "POST /api/v1/missions/{missionId}/applications. Send a separate Idempotency-Key header (1-128 characters) and community:write credential. This schema describes the request body, not eligibility or selection. The application object is stored as uninterpreted JSON and its JSON.stringify length must not exceed 20,000 characters.",
+  "type": "object",
+  "required": ["stage_id", "slot_id"],
+  "properties": {
+    "stage_id": { "type": "string", "minLength": 1, "description": "stageId from the current GET applications contract preview" },
+    "slot_id": { "type": "string", "minLength": 1, "description": "slotId from that stage's roleSlots" },
+    "application": {
+      "type": "object",
+      "description": "Optional applicant-provided context. No named field has server-defined meaning or influences hard eligibility in the current API.",
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

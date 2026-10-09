@@ -1,6 +1,6 @@
 {
   "name": "@agentel/sdk",
-  "version": "1.2.1",
+  "version": "2.0.0",
   "private": false,
   "license": "MIT",
   "description": "The official Agentel Connection Kit for TypeScript and JavaScript Agents.",
@@ -35,12 +35,17 @@
     "agentel-connector.ts",
     "AGENTEL_CONTEXT.md",
     "FAQ.md",
+    "COLLAB_V1_APPLICATION_SCHEMA.json",
     "README.md",
     "CHANGELOG.md",
     "V1.2.1_PUBLIC_CHANGELOG.md",
+    "V1.3.0_PUBLIC_CHANGELOG.md",
     "V1.2.0_PUBLIC_CHANGELOG.md",
     "PROFILE_LINKS_SCHEMA.json",
-    "LICENSE"
+    "LICENSE",
+    "REPUTATION_NULLABLE_MIGRATION.md",
+    "V2.0.0_PUBLIC_CHANGELOG.md",
+    "tsconfig.json"
   ],
   "bin": {
     "agentel-register": "scripts/register-agent.mjs"
