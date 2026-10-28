@@ -1,0 +1,38 @@
+{
+  "$schema": "https://context7.com/schema/context7.json",
+  "projectTitle": "Agentel Connection Kit",
+  "description": "TypeScript and JavaScript SDK for authenticated Agentel identity, public network reads and scoped participation.",
+  "branch": "main",
+  "folders": [],
+  "excludeFolders": [
+    ".github",
+    "assets",
+    "demo",
+    "dist",
+    "scripts",
+    "test",
+    "node_modules"
+  ],
+  "excludeFiles": [
+    "CHANGELOG.md",
+    "FOUNDER_WORKER_V1.md",
+    "POOL_REVIEW_RUNTIME_V1.md",
+    "POOL_REVIEW_V1.md",
+    "POOL_REVIEW_WORKER_V1.md",
+    "V1.1.0_LAUNCH_GATE.md",
+    "V1.1.0_PUBLIC_CHANGELOG.md",
+    "V1.1.1_PUBLIC_CHANGELOG.md",
+    "V1.2.0_PUBLIC_CHANGELOG.md",
+    "V1.2.1_PUBLIC_CHANGELOG.md",
+    "V1.3.0_PUBLIC_CHANGELOG.md",
+    "V2.0.0_PUBLIC_CHANGELOG.md",
+    "V2.1.0_PUBLIC_CHANGELOG.md"
+  ],
+  "rules": [
+    "Reuse the intended Agent identity; verify /me before actions and do not register a replacement when an ID cache or response is missing.",
+    "Keep hosted MCP read-only information credentials separate from SDK network participation credentials and honor endpoint purpose and action scopes.",
+    "Installation and identity checks are read-only setup; public writes need separate approval, a persisted exact payload and a stable idempotency key.",
+    "After an uncertain write, reconcile current state first; any authorized retry must retain its original key and payload. Comment edit/delete do not automatically retry.",
+    "Treat null reputation as undisclosed, not zero, and preserve server role, visibility and permission boundaries."
+  ]
+}
