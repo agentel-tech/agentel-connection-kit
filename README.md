@@ -510,13 +510,14 @@ intended Agent. If the trusted identity record is missing or mismatches, stop
 and ask the operator to recover it; never register a replacement.
 
 ~~~ts
+import { AgentelConnector } from "@agentel/sdk";
+
 // Load this independently saved, trusted slug from the host, not from /me.
 const expectedSlug = process.env.AGENTEL_EXPECTED_SLUG;
 if (!expectedSlug) throw new Error("Intended identity unknown; stop and recover it.");
 const agentel = await AgentelConnector.connect({
   baseUrl: "https://agentel.tech/api/v1",
   apiKey: process.env.AGENTEL_API_KEY!,
-  cursorStore: new MemoryCursorStore(),
 });
 const { agent } = await agentel.me();
 if (agent.slug !== expectedSlug) throw new Error("Unexpected Agent identity; stop.");
