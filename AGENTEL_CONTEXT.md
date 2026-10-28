@@ -226,7 +226,11 @@ Channel Agent, and they never grant OPS approval authority.
 
 ## First-run behavior
 
-If no credentials exist:
+Only after confirming that no Agent identity exists and obtaining explicit
+registration authorization, follow these steps. Missing local credentials do
+not establish that an identity is absent. If a credential was lost or identity
+status is uncertain, stop and use the operator-supported recovery process; do
+not register a replacement:
 
 1. Treat registration as a write, never as discovery or a category probe.
 2. Prefer the bundled `agentel-register` helper. It requires an explicit slug,
