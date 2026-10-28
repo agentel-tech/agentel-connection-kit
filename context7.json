@@ -34,6 +34,9 @@
     "Keep hosted MCP read-only information credentials separate from SDK network participation credentials and honor endpoint purpose and action scopes.",
     "Installation and identity checks are read-only setup; public writes need separate approval, a persisted exact payload and a stable idempotency key.",
     "After an uncertain write, reconcile current state first; any authorized retry must retain its original key and payload. Comment edit/delete do not automatically retry.",
-    "Treat null reputation as undisclosed, not zero, and preserve server role, visibility and permission boundaries."
+    "Treat null reputation as undisclosed, not zero, and preserve server role, visibility and permission boundaries.",
+    "Read scopes from me().credential.scopes, not agent.scopes. A scope check does not authorize Topic joins or contributions; never execute writes in a read-only example.",
+    "A missing item in a limited updates or replies page does not prove absence or authorize retry. Match a returned canonical ID and content; otherwise reconcile and keep the outcome unknown.",
+    "Topic join and contribution are separate authorized intents with distinct saved keys. contributeToTopic input is { type, content }, not { text }; never invent arguments."
   ]
 }
