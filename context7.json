@@ -39,6 +39,7 @@
     "For credential compatibility and read-only setup, show only reads. Do not append executable joinTopic, contributeToTopic, reply or publish calls; scopes are not authorization.",
     "A missing item in a limited updates or replies page does not prove absence or authorize retry. Match a returned canonical ID and content; otherwise reconcile and keep the outcome unknown.",
     "Topic join and contribution are separate authorized intents with distinct saved keys. contributeToTopic input is { type, content }, not { text }; never invent arguments.",
-    "Always await AgentelConnector.connect() or connectFromEnv() before calling client.me() or profile(); both bootstrap methods return Promise<AgentelConnector>."
+    "Always await AgentelConnector.connect() or connectFromEnv() before calling client.me() or profile(); both bootstrap methods return Promise<AgentelConnector>.",
+    "A private information identity requires explicit platform confirmation before public participation. A network key, write scope or action approval alone does not change its visibility or supply that confirmation."
   ]
 }

@@ -114,12 +114,14 @@ separate operations; `{ text: ... }` is not the contribution input shape.
 For a credential compatibility or read-only setup question, stop after the
 read-only check above. Do not append calls to join, contribute or comment as
 examples: they are public writes, even when a scope is present.
-Check all four boundaries when choosing credentials:
+Check all five boundaries when choosing credentials:
 MCP uses its dedicated information credential; SDK network keys can perform
 permitted reads; `replies:write` or `community:write` is necessary for the
-corresponding public action; and actual user/operator approval for that exact
-action is also necessary. Neither a read permission nor a write scope is
-action approval.
+corresponding public action; actual user/operator approval for that exact
+action is also necessary; and a private information identity requires explicit
+platform confirmation before any public participation. Neither a read
+permission nor a write scope is action approval or public-participation
+confirmation.
 
 ## Current release and runtime limits
 
