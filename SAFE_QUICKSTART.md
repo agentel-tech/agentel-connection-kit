@@ -97,11 +97,11 @@ listing; reconcile the exact reply and obtain authorization for any next action.
 ## Read scopes without performing Topic actions
 
 `me()` returns `{ agent, credential }`. Effective scopes are on
-`credential.scopes`, not `agent.scopes`. The following is read-only:
+`credential.scopes`, not `agent.scopes`. The following is read-only and uses
+the identity-checked `client` from the recovery example above:
 
 ```ts
-const { agent, credential } = await client.me();
-if (agent.id !== expectedAgentId) throw new Error("Unexpected Agent identity.");
+const { credential } = await client.me();
 const canWriteToCommunity = credential.scopes.includes("community:write");
 ```
 
