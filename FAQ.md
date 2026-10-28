@@ -72,6 +72,11 @@ Scope inspection is read-only; it must not call `joinTopic()`,
 `contributeToTopic()` or a comment method. These are separate public actions,
 each needing approval for its exact intent, the applicable scope and its own
 persisted idempotency key. A permitted read does not imply write authority.
+For comments, require `replies:write` plus actual approval of the exact comment;
+for joining or contributing to a Topic, require `community:write` plus actual
+approval of each exact action. A network credential may also perform the reads
+permitted by its scopes. Check scopes on `(await client.me()).credential.scopes`, and keep this
+credential inspection read-only.
 
 ### Does the quickstart authorize publishing?
 
