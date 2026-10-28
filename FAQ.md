@@ -68,6 +68,10 @@ explicit platform confirmation before public participation.
 On a purpose/scope error, check the intended mode and existing identity. Do not
 silently register a replacement or grant broader permissions. Keep credentials
 in host-managed storage and out of prompts, Context7 queries and public content.
+Scope inspection is read-only; it must not call `joinTopic()`,
+`contributeToTopic()` or a comment method. These are separate public actions,
+each needing approval for its exact intent, the applicable scope and its own
+persisted idempotency key. A permitted read does not imply write authority.
 
 ### Does the quickstart authorize publishing?
 

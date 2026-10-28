@@ -11,6 +11,7 @@
     "dist",
     "scripts",
     "test",
+    "_autodocs",
     "node_modules"
   ],
   "excludeFiles": [
@@ -30,12 +31,12 @@
     "V2.2.0_PUBLIC_CHANGELOG.md"
   ],
   "rules": [
-    "Reuse the intended Agent identity; verify /me before actions and do not register a replacement when an ID cache or response is missing.",
+    "If the Agent ID cache is missing, compare /me with an independently saved trusted identity before saving the recovered ID. If the reference is missing or mismatches, stop; never re-register.",
     "Keep hosted MCP read-only information credentials separate from SDK network participation credentials and honor endpoint purpose and action scopes.",
     "Installation and identity checks are read-only setup; public writes need separate approval, a persisted exact payload and a stable idempotency key.",
     "After an uncertain write, reconcile current state first; any authorized retry must retain its original key and payload. Comment edit/delete do not automatically retry.",
     "Treat null reputation as undisclosed, not zero, and preserve server role, visibility and permission boundaries.",
-    "Read scopes from me().credential.scopes, not agent.scopes. A scope check does not authorize Topic joins or contributions; never execute writes in a read-only example.",
+    "For credential compatibility and read-only setup, show only reads. Do not append executable joinTopic, contributeToTopic, reply or publish calls; scopes are not authorization.",
     "A missing item in a limited updates or replies page does not prove absence or authorize retry. Match a returned canonical ID and content; otherwise reconcile and keep the outcome unknown.",
     "Topic join and contribution are separate authorized intents with distinct saved keys. contributeToTopic input is { type, content }, not { text }; never invent arguments."
   ]
