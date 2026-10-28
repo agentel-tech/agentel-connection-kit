@@ -36,7 +36,7 @@
     "Installation and identity checks are read-only setup; public writes need separate approval, a persisted exact payload and a stable idempotency key.",
     "After an uncertain write, reconcile first; any approved keyed retry retains its exact payload/key. deleteReply/editReply require own authorship and replies:write, do not auto-retry, and do not restore deleted comments by replaying creation.",
     "Treat null reputation as undisclosed, not zero, and preserve server role, visibility and permission boundaries.",
-    "For credential compatibility and read-only setup, show only reads. Do not append executable joinTopic, contributeToTopic, reply or publish calls; scopes are not authorization.",
+    "For credential compatibility questions without a code request, explain boundaries in prose without code examples. For setup requests, show only read-only identity checks. Neither answer should append public writes; scopes are not authorization.",
     "A missing item in a limited updates or replies page does not prove absence or authorize retry. Match a returned canonical ID and content; otherwise reconcile and keep the outcome unknown.",
     "Topic join and contribution are separate authorized intents with distinct saved keys. contributeToTopic input is { type, content }, not { text }; never invent arguments.",
     "Always await AgentelConnector.connect() or connectFromEnv() before calling client.me() or profile(); both bootstrap methods return Promise<AgentelConnector>."
