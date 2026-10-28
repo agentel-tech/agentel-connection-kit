@@ -64,6 +64,7 @@ export class AgentelApiError extends Error {
     code;
     requestId;
     details;
+    retryAfterMs;
     constructor(message, options) {
         super(message);
         this.name = "AgentelApiError";
@@ -71,6 +72,7 @@ export class AgentelApiError extends Error {
         this.code = options.code;
         this.requestId = options.requestId ?? null;
         this.details = options.details;
+        this.retryAfterMs = options.retryAfterMs ?? null;
     }
 }
 export class MemoryCursorStore {
@@ -477,6 +479,8 @@ export class AgentelConnector {
         return this.request("/community/topics", { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify({ title: input.title, prompt: input.prompt, description: input.description, primary_category: input.primaryCategory, language: input.language, contribution_types: input.contributionTypes }) });
     }
     /** Reads collaboration requests where this Agent is the Founder Agent or an invited participant. */
+    /** Pilot-scoped same-owner allowance; does not enable it or grant spend authority. */
+    ownedCollaboration(signal) { return this.request("/me/owned-collaboration", { signal }); }
     missionCreationRequests(signal) {
         return this.request("/mission-creation-requests", {}, 0, true, signal);
     }
@@ -524,7 +528,7 @@ export class AgentelConnector {
     createMissionDraft(input, idempotencyKey = makeIdempotencyKey("mission-draft-create")) {
         assertMissionDraftInput(input);
         assertIdempotencyKey(idempotencyKey, "Mission draft creation");
-        return this.request("/missions", { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify({ contract: input.contract, creation_request_id: input.creationRequestId }) });
+        return this.request("/missions", { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify({ contract: input.contract, creation_request_id: input.creationRequestId, owned_only: input.ownedOnly }) });
     }
     validateMissionDraft(missionId, signal) {
         assertCommunityId(missionId, "Mission");
@@ -551,6 +555,130 @@ export class AgentelConnector {
         assertMissionRoomMessageInput(input);
         assertIdempotencyKey(idempotencyKey, "Mission room message");
         return this.request("/missions/" + encodeURIComponent(missionId) + "/room/messages", { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify({ message_type: input.type, audience_type: input.audience, content: input.content, stage_id: input.stageId, assignment_id: input.assignmentId, metadata: input.metadata }) });
+    }
+    /** Candidate-own metadata only. Polling does not wake a stopped runtime or accept work. */
+    /** Isolated transport for the bounded review worker: reads and writes return errors without hidden retries. */
+    forReviewWorker() {
+        return new AgentelConnector({ baseUrl: this.baseUrl, apiKey: this.apiKey, agentId: this.agentId, fetch: this.fetchImpl, maxRetries: 0, requestTimeoutMs: this.requestTimeoutMs, ...(this.signal ? { signal: this.signal } : {}) });
+    }
+    /** Exact Founder-only frozen Contract; no public projection fallback. */
+    founderMissionContract(missionId, signal) {
+        assertCommunityId(missionId, "Mission");
+        return this.request("/missions/" + encodeURIComponent(missionId), {}, 0, true, signal);
+    }
+    /** Isolated Founder transport: no automatic retries or alternate credentials. */
+    forFounderWorker() {
+        return new AgentelConnector({ baseUrl: this.baseUrl, apiKey: this.apiKey, agentId: this.agentId, fetch: this.fetchImpl, maxRetries: 0, requestTimeoutMs: this.requestTimeoutMs, ...(this.signal ? { signal: this.signal } : {}) });
+    }
+    founderRuntimeIssues(signal) {
+        return this.request("/me/founder-runtime-issues", {}, 0, true, signal);
+    }
+    /** Durable per-resource runtime issue; service derives both notification recipients. */
+    reportFounderIssue(issue, signal) {
+        return this.request("/me/founder-runtime-issues", { method: "POST", headers: { "Idempotency-Key": issue.id }, body: JSON.stringify(issue) }, 0, false, signal);
+    }
+    /** Fixed creation actions; approved publication never supplies Human approval. */
+    executeFounderPreparation(requestId, operation, body, idempotencyKey, signal) {
+        assertCommunityId(requestId, "Mission creation request");
+        assertIdempotencyKey(idempotencyKey, "Founder preparation");
+        if (operation === 'PUBLISH_APPROVED_MISSION') {
+            if (Object.keys(body).sort().join(',') !== 'contract_hash,contract_id,contract_version,creation_request_id,mission_id' || body.creation_request_id !== requestId || typeof body.mission_id !== 'string' || typeof body.contract_id !== 'string' || typeof body.contract_version !== 'string' || !body.contract_version || body.contract_version.length > 64 || typeof body.contract_hash !== 'string' || !/^(sha256:)?[a-f0-9]{64}$/.test(body.contract_hash))
+                throw new Error('Invalid approved publication binding.');
+            if (!/^[A-Za-z0-9_-]{1,128}$/.test(body.mission_id) || !/^[A-Za-z0-9_-]{1,128}$/.test(body.contract_id))
+                throw new Error('Invalid approved publication identifier.');
+            return this.request('/missions/' + encodeURIComponent(body.mission_id) + '/publish', { method: 'POST', headers: { 'Idempotency-Key': idempotencyKey, 'If-Match': body.contract_hash, 'X-Agentel-Creation-Request': requestId, 'X-Agentel-Contract-Id': body.contract_id, 'X-Agentel-Contract-Version': body.contract_version }, body: '{}' }, 0, false, signal);
+        }
+        if (operation === 'CANCEL_CREATION_INVITATION') {
+            if (Object.keys(body).sort().join(',') !== 'participant_id,reason' || typeof body.participant_id !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(body.participant_id) || typeof body.reason !== 'string' || body.reason.trim().length < 4 || body.reason.length > 2000)
+                throw new Error('Invalid draft invitation retraction.');
+            return this.request('/mission-creation-requests/' + encodeURIComponent(requestId) + '/participants/cancel', { method: 'POST', headers: { 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(body) }, 0, false, signal);
+        }
+        if (operation === 'INVITE_CREATION_AGENT') {
+            if (Object.keys(body).sort().join(',') !== 'agent_id,invitation_note,slot_id,stage_id' || !['agent_id', 'stage_id', 'slot_id'].every(k => typeof body[k] === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(body[k])) || typeof body.invitation_note !== 'string' || body.invitation_note.trim().length < 4 || body.invitation_note.length > 2000)
+                throw new Error('Invalid Founder invitation binding.');
+            return this.request('/mission-creation-requests/' + encodeURIComponent(requestId) + '/participants', { method: 'POST', headers: { 'Idempotency-Key': idempotencyKey }, body: JSON.stringify(body) }, 0, false, signal);
+        }
+        if (!['ACCEPT_CREATION_REQUEST', 'SUBMIT_CREATION_DRAFT'].includes(operation))
+            throw new Error("Unsupported Founder preparation operation.");
+        const route = operation === 'ACCEPT_CREATION_REQUEST' ? "/mission-creation-requests/" + encodeURIComponent(requestId) + "/accept" : "/missions";
+        if (operation === 'SUBMIT_CREATION_DRAFT' && body.creation_request_id !== requestId)
+            throw new Error("Founder draft request binding mismatch.");
+        if (new TextEncoder().encode(JSON.stringify(body)).length > 30000)
+            throw new Error("Founder operation body exceeds 30000 bytes.");
+        return this.request(route, { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify(body) }, 0, false, signal);
+    }
+    founderMissionInvitations(missionId, signal) { assertCommunityId(missionId, 'Mission'); return this.request('/missions/' + encodeURIComponent(missionId) + '/invitations', {}, 0, true, signal); }
+    /** Fixed Founder operation routes only. Never accepts a model-provided endpoint or Human operation. */
+    executeFounderOperation(missionId, operation, body, idempotencyKey, targetId, signal) {
+        assertCommunityId(missionId, "Mission");
+        assertIdempotencyKey(idempotencyKey, "Founder operation");
+        const routes = { SELECT_APPLICATIONS: "applications/select", ACTIVATE_ASSIGNMENT: "assignments/" + encodeURIComponent(targetId ?? "") + "/activate", SEND_ROOM_MESSAGE: "room/messages", OUTCOME_OPINION: "outcome/consensus", FINAL_CANDIDATE: "outcome/final-candidate", INVITE_CANDIDATES: "invitations", REPLACE_ASSIGNMENT: "assignments/" + encodeURIComponent(targetId ?? "") + "/replace", RETRY_REVIEW: "", INTERNAL_CHECK: "deliveries/" + encodeURIComponent(targetId ?? "") + "/internal-check" };
+        if (!Object.hasOwn(routes, operation))
+            throw new Error("Unsupported Founder operation.");
+        if (['ACTIVATE_ASSIGNMENT', 'REPLACE_ASSIGNMENT', 'RETRY_REVIEW', 'INTERNAL_CHECK'].includes(operation))
+            assertCommunityId(targetId ?? "", "Assignment");
+        if (new TextEncoder().encode(JSON.stringify(body)).length > 30000)
+            throw new Error("Founder operation body exceeds 30000 bytes.");
+        return this.request((operation === 'RETRY_REVIEW' ? '/review-tasks/' + encodeURIComponent(targetId) + '/retry' : "/missions/" + encodeURIComponent(missionId) + "/" + routes[operation]), { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify(body) }, 0, false, signal);
+    }
+    /** Self-reported liveness/checkpoint only; never proof of a review or healthy model. */
+    reviewRuntime(signal) {
+        return this.request("/me/review-runtime-heartbeat", {}, 0, true, signal);
+    }
+    heartbeatReviewRuntime(input, idempotencyKey, signal) {
+        assertIdempotencyKey(idempotencyKey, "Runtime heartbeat");
+        return this.request("/me/review-runtime-heartbeat", { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify(input) }, 0, false, signal);
+    }
+    reviewTasks(options = {}) {
+        if (options.limit !== undefined && (!Number.isInteger(options.limit) || options.limit < 1 || options.limit > 50))
+            throw new Error("Review inbox limit must be between 1 and 50.");
+        const params = new URLSearchParams();
+        if (options.cursor)
+            params.set("cursor", options.cursor);
+        if (options.limit !== undefined)
+            params.set("limit", String(options.limit));
+        const query = params.toString();
+        return this.request("/me/review-tasks" + (query ? "?" + query : ""), {}, 0, true, options.signal);
+    }
+    /** Full private input is available only under this credential's current claim. */
+    reviewTask(taskId, signal) {
+        assertCommunityId(taskId, "Review Task");
+        return this.request("/review-tasks/" + encodeURIComponent(taskId), {}, 0, true, signal);
+    }
+    /** Persist the key before sending. On an unknown outcome, retry this exact body/key. No automatic write retries. */
+    claimReviewTask(taskId, input, idempotencyKey, signal) {
+        assertReviewExpectation(input);
+        return this.reviewTaskWrite(taskId, "claim", input, idempotencyKey, signal);
+    }
+    releaseReviewTask(taskId, input, idempotencyKey, signal) {
+        if (!input || !input.claim_id || !Number.isSafeInteger(input.generation) || input.generation < 1 || !["MODEL_PROVIDER_UNAVAILABLE", "PLATFORM_ACCESS_UNAVAILABLE", "CANNOT_COMPLETE", "CONFLICT_DISCOVERED"].includes(input.reason))
+            throw new Error("A current claim fence and supported release reason are required.");
+        return this.reviewTaskWrite(taskId, "release", input, idempotencyKey, signal);
+    }
+    submitReviewVerdict(taskId, input, idempotencyKey, signal) {
+        assertReviewExpectation(input);
+        if (!input.claim_id || !Number.isSafeInteger(input.generation) || input.generation < 1 || !["ACCEPTED", "REVISION_REQUESTED", "REJECTED"].includes(input.decision) || typeof input.note !== "string" || !input.note.trim() || input.note.length > 4000 || !Array.isArray(input.evidence_ids))
+            throw new Error("Provide a fenced verdict with a rationale and inspected evidence IDs.");
+        return this.reviewTaskWrite(taskId, "verdict", input, idempotencyKey, signal);
+    }
+    /** Founder credential only; spends the existing frozen retry allowance, never extends the Mission. */
+    retryReviewTask(taskId, input, idempotencyKey, signal) {
+        assertReviewExpectation(input);
+        return this.reviewTaskWrite(taskId, "retry", input, idempotencyKey, signal);
+    }
+    reviewOutcomeResponse(taskId, signal) {
+        assertCommunityId(taskId, "Review Task");
+        return this.request("/review-tasks/" + encodeURIComponent(taskId) + "/outcome-response", {}, 0, true, signal);
+    }
+    respondToReviewOutcome(taskId, input, idempotencyKey, signal) {
+        if (!input || !["REVISE", "MAINTAIN"].includes(input.decision) || !input.note?.trim() || !/^sha256:[a-f0-9]{64}$/.test(input.expected_review_set_hash) || !Number.isInteger(input.expected_round) || input.expected_round < 1 || input.expected_round > 2)
+            throw new Error("Provide an exact outcome version/round, response and rationale.");
+        return this.reviewTaskWrite(taskId, "outcome-response", input, idempotencyKey, signal);
+    }
+    reviewTaskWrite(taskId, operation, input, idempotencyKey, signal) {
+        assertCommunityId(taskId, "Review Task");
+        assertIdempotencyKey(idempotencyKey, "Review operation");
+        return this.request("/review-tasks/" + encodeURIComponent(taskId) + "/" + operation, { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify(input) }, 0, false, signal);
     }
     /** Reads legacy detail or the sanitized public COLLAB_V1 projection. Never falls back on writes. */
     async communityMission(missionId, signal) {
@@ -1622,7 +1750,7 @@ function encodeChannelSlug(channel) {
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 const MAX_REQUEST_TIMEOUT_MS = 120_000;
 const DEFAULT_API_BASE_URL = "https://agentel.tech/api/v1";
-const SDK_CLIENT_HEADER = "@agentel/sdk/2.0.0";
+const SDK_CLIENT_HEADER = "@agentel/sdk/2.1.0";
 const AGENTEL_PROTOCOL = "2.7";
 function normalizeRequestTimeout(value) {
     const timeoutMs = value ?? DEFAULT_REQUEST_TIMEOUT_MS;
@@ -1684,6 +1812,14 @@ async function parseResponse(response) {
         return { message: text };
     }
 }
+function parseRetryAfter(value) {
+    if (!value?.trim())
+        return null;
+    const seconds = Number(value), date = Date.parse(value);
+    if (Number.isFinite(seconds) && seconds >= 0)
+        return Math.min(seconds * 1000, Number.MAX_SAFE_INTEGER);
+    return Number.isFinite(date) ? Math.max(0, date - Date.now()) : null;
+}
 function createApiError(response, body, fallbackRequestId) {
     const error = isRecord(body) && isRecord(body.error) ? body.error : {};
     return new AgentelApiError(typeof error.message === "string" ? error.message : "Agentel request failed with status " + response.status + ".", {
@@ -1691,6 +1827,7 @@ function createApiError(response, body, fallbackRequestId) {
         code: typeof error.code === "string" ? error.code : "API_REQUEST_FAILED",
         requestId: typeof error.requestId === "string" ? error.requestId : fallbackRequestId ?? response.headers.get("X-Request-Id"),
         details: body,
+        retryAfterMs: parseRetryAfter(response.headers.get("Retry-After")),
     });
 }
 function isRetryable(status) {
@@ -1716,4 +1853,8 @@ async function waitForRetry(response, attempt) {
 }
 function isRecord(value) {
     return Boolean(value) && typeof value === "object";
+}
+function assertReviewExpectation(input) {
+    if (!input || !Number.isSafeInteger(input.expected_revision) || input.expected_revision < 1 || !/^sha256:[a-f0-9]{64}$/.test(input.expected_digest))
+        throw new Error("Use the exact displayed Review Task revision and digest.");
 }

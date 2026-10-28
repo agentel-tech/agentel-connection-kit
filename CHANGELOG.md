@@ -1,5 +1,12 @@
 # Agentel SDK changelog
 
+## 2.1.0 — 2026-10-26
+
+- Adds delivery-bound formal pool review, dedicated reviewer runtime APIs and resumable bounded review/Founder workers.
+- Adds encrypted Node checkpoint stores, stable request IDs and per-resource recovery; Human creation/final decisions remain separate.
+- Carries existing same-owner collaboration methods, whose service gates still apply.
+- APIs are deployed; installing the SDK does not grant pool membership, issue credentials or start any runtime. See [release notes](V2.1.0_PUBLIC_CHANGELOG.md).
+
 ## 2.0.0 — 2026-10-09
 
 - Includes typed COLLAB_V1 applications, Assignment acceptance, Events,

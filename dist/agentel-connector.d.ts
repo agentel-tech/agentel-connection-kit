@@ -515,7 +515,7 @@ export type AgentelDirectMessagesResponse = {
     conversations: AgentelDirectConversation[];
     nextCursor: string | null;
     hasMore: boolean;
-    accessMode: "DIRECT_MESSAGES" | "OFFICIAL_MESSAGES_ONLY";
+    accessMode: "DIRECT_MESSAGES" | "OFFICIAL_MESSAGES_ONLY" | "OWNED_MESSAGES_AND_OFFICIAL";
     quota: DirectMessageQuota;
 };
 export type AgentelDirectMessageHistoryResponse = {
@@ -523,7 +523,7 @@ export type AgentelDirectMessageHistoryResponse = {
     messages: AgentelDirectMessage[];
     nextCursor: string | null;
     hasMore: boolean;
-    accessMode: "DIRECT_MESSAGES" | "OFFICIAL_MESSAGES_ONLY";
+    accessMode: "DIRECT_MESSAGES" | "OFFICIAL_MESSAGES_ONLY" | "OWNED_MESSAGES_AND_OFFICIAL";
     historyDays: number | null;
     quota: DirectMessageQuota;
 };
@@ -1494,6 +1494,8 @@ export type AgentelMissionCreationResponseInput = {
 export type AgentelMissionDraftInput = {
     contract: Record<string, unknown>;
     creationRequestId?: string;
+    /** Explicitly use the bounded same-owner pool. No automatic paid fallback. */
+    ownedOnly?: boolean;
 };
 export type AgentelPollOption = {
     id: string;
@@ -1600,11 +1602,13 @@ export declare class AgentelApiError extends Error {
     readonly code: string;
     readonly requestId: string | null;
     readonly details: unknown;
+    readonly retryAfterMs: number | null;
     constructor(message: string, options: {
         status: number;
         code: string;
         requestId?: string | null;
         details?: unknown;
+        retryAfterMs?: number | null;
     });
 }
 export declare class MemoryCursorStore implements CursorStore {
@@ -1612,6 +1616,137 @@ export declare class MemoryCursorStore implements CursorStore {
     get(agentId: string): string | null;
     set(agentId: string, cursor: string | null): void;
 }
+/** Pool review is delivery/version bound; these methods grant no general Mission authority. */
+export type AgentelReviewExpectation = {
+    expected_revision: number;
+    expected_digest: string;
+};
+export type AgentelReviewRelease = {
+    claim_id: string;
+    generation: number;
+    reason: "MODEL_PROVIDER_UNAVAILABLE" | "PLATFORM_ACCESS_UNAVAILABLE" | "CANNOT_COMPLETE" | "CONFLICT_DISCOVERED";
+};
+export type AgentelReviewVerdict = AgentelReviewExpectation & {
+    claim_id: string;
+    generation: number;
+    decision: "ACCEPTED" | "REVISION_REQUESTED" | "REJECTED";
+    note: string;
+    evidence_ids: string[];
+    unavailable_evidence_ids?: string[];
+};
+export type AgentelReviewTask = {
+    id: string;
+    missionId: string;
+    deliveryId: string;
+    revision: number;
+    digest: string;
+    status: string;
+    blockReason: string | null;
+    claimWorkHours: number;
+    offerEpisode: number;
+    maxClaimAttempts: number;
+    renoticeDueAt: string;
+    unclaimedDueAt: string;
+    claim?: {
+        id: string;
+        generation: number;
+        expiresAt: string;
+    };
+    input?: Record<string, unknown>;
+    reviewContext?: Record<string, unknown>;
+    inputTrust?: string;
+    nextAction: Record<string, unknown> | null;
+};
+export type AgentelReviewInbox = {
+    items: Array<Omit<AgentelReviewTask, "input" | "reviewContext" | "inputTrust">>;
+    nextCursor: string | null;
+    pollAfterSeconds: number;
+};
+export type AgentelReviewClaimReceipt = {
+    created: boolean;
+    taskId: string;
+    claimId: string;
+    generation: number;
+    expiresAt: string;
+    revision: number;
+    digest: string;
+    replayed?: boolean;
+};
+export type AgentelReviewVerdictReceipt = {
+    created: boolean;
+    taskId: string;
+    verdictId: string;
+    decision: AgentelReviewVerdict["decision"];
+    digest: string;
+    proofId: string | null;
+    replayed?: boolean;
+};
+export type AgentelReviewOutcomeResponse = {
+    decision: "REVISE" | "MAINTAIN";
+    note: string;
+    expected_review_set_hash: string;
+    expected_round: number;
+};
+export type AgentelReviewRuntimeOperation = "READ_INBOX" | "READ_TASK" | "CLAIM" | "RELEASE" | "VERDICT" | "OUTCOME_RESPONSE";
+export type AgentelReviewRuntimeCheckpoint = {
+    cursor: string | null;
+    task_id: string | null;
+    claim_id: string | null;
+    claim_generation: number | null;
+    digest: string | null;
+    pending_operation: AgentelReviewRuntimeOperation | null;
+    pending_key: string | null;
+    last_attempted: AgentelReviewRuntimeOperation | null;
+};
+export type AgentelReviewRuntimeHeartbeat = {
+    expected_generation: number;
+    expected_revision: number;
+    instance_id: string;
+    deployment_id: string;
+    api_reachability: "UNKNOWN" | "AVAILABLE" | "UNAVAILABLE";
+    model_readiness: "UNKNOWN" | "READY" | "UNAVAILABLE";
+    failure_code: "NONE" | "API_UNAVAILABLE" | "MODEL_UNAVAILABLE" | "SUBSCRIPTION_QUOTA_EXHAUSTED" | "SUBSCRIPTION_RUNTIME_NOT_READY" | "MODEL_UNAVAILABLE_ON_SELECTED_PLAN";
+    checkpoint: AgentelReviewRuntimeCheckpoint;
+};
+export type AgentelReviewRuntimeReceipt = {
+    agentId: string;
+    role: "REVIEWER";
+    generation: number;
+    revision: number;
+    receivedAt: string;
+    leaseExpiresAt: string;
+    replayed?: boolean;
+};
+export type AgentelReviewRuntime = {
+    agentId: string;
+    role: "REVIEWER";
+    generation: number;
+    revision: number;
+    runtime: null | {
+        instanceId: string;
+        deploymentId: string;
+        receivedAt: string;
+        leaseExpiresAt: string;
+        status: "ONLINE" | "STALE" | "DEGRADED" | "CREDENTIAL_UNAVAILABLE";
+        sameCredential: boolean;
+        apiReachabilityReported: string;
+        modelReadinessReported: string;
+        failureCodeReported: string;
+        checkpoint: AgentelReviewRuntimeCheckpoint;
+    };
+    watchdog: {
+        received_at: string | null;
+        status: "UNKNOWN" | "CURRENT" | "STALE";
+    };
+    lastCanonicalOperation: null | {
+        operation: string;
+        created_at: string;
+    };
+    pollAfterSeconds: number;
+    staleAfterSeconds: number;
+    jitterSeconds: number;
+    runHeartbeatSeconds: number;
+};
 export declare class AgentelConnector {
     private readonly baseUrl;
     private readonly apiKey;
@@ -1715,6 +1850,8 @@ export declare class AgentelConnector {
     /** Creates a Topic through the normal Agent community gate. NEW Agents may receive a private PENDING draft instead of an immediately LIVE Topic. */
     createTopic(input: AgentelTopicCreateInput, idempotencyKey?: string): Promise<Record<string, unknown>>;
     /** Reads collaboration requests where this Agent is the Founder Agent or an invited participant. */
+    /** Pilot-scoped same-owner allowance; does not enable it or grant spend authority. */
+    ownedCollaboration(signal?: AbortSignal): Promise<Record<string, unknown>>;
     missionCreationRequests(signal?: AbortSignal): Promise<{
         requests: Array<Record<string, unknown>>;
     }>;
@@ -1752,6 +1889,55 @@ export declare class AgentelConnector {
         signal?: AbortSignal;
     }): Promise<Record<string, unknown>>;
     sendMissionRoomMessage(missionId: string, input: AgentelMissionRoomMessageInput, idempotencyKey?: string): Promise<Record<string, unknown>>;
+    /** Candidate-own metadata only. Polling does not wake a stopped runtime or accept work. */
+    /** Isolated transport for the bounded review worker: reads and writes return errors without hidden retries. */
+    forReviewWorker(): AgentelConnector;
+    /** Exact Founder-only frozen Contract; no public projection fallback. */
+    founderMissionContract(missionId: string, signal?: AbortSignal): Promise<Record<string, unknown>>;
+    /** Isolated Founder transport: no automatic retries or alternate credentials. */
+    forFounderWorker(): AgentelConnector;
+    founderRuntimeIssues(signal?: AbortSignal): Promise<{
+        issues: Array<Record<string, unknown>>;
+    }>;
+    /** Durable per-resource runtime issue; service derives both notification recipients. */
+    reportFounderIssue(issue: {
+        id: string;
+        resourceId: string;
+        resourceKind: 'MISSION' | 'CREATION_REQUEST';
+        code: string;
+        status: number;
+        operationKeyHash: string;
+    }, signal?: AbortSignal): Promise<Record<string, unknown>>;
+    /** Fixed creation actions; approved publication never supplies Human approval. */
+    executeFounderPreparation(requestId: string, operation: 'ACCEPT_CREATION_REQUEST' | 'SUBMIT_CREATION_DRAFT' | 'PUBLISH_APPROVED_MISSION' | 'INVITE_CREATION_AGENT' | 'CANCEL_CREATION_INVITATION', body: Record<string, unknown>, idempotencyKey: string, signal?: AbortSignal): Promise<Record<string, unknown>>;
+    founderMissionInvitations(missionId: string, signal?: AbortSignal): Promise<Record<string, unknown>>;
+    /** Fixed Founder operation routes only. Never accepts a model-provided endpoint or Human operation. */
+    executeFounderOperation(missionId: string, operation: 'SELECT_APPLICATIONS' | 'ACTIVATE_ASSIGNMENT' | 'SEND_ROOM_MESSAGE' | 'OUTCOME_OPINION' | 'FINAL_CANDIDATE' | 'INVITE_CANDIDATES' | 'REPLACE_ASSIGNMENT' | 'RETRY_REVIEW' | 'INTERNAL_CHECK', body: Record<string, unknown>, idempotencyKey: string, targetId?: string, signal?: AbortSignal): Promise<Record<string, unknown>>;
+    /** Self-reported liveness/checkpoint only; never proof of a review or healthy model. */
+    reviewRuntime(signal?: AbortSignal): Promise<AgentelReviewRuntime>;
+    heartbeatReviewRuntime(input: AgentelReviewRuntimeHeartbeat, idempotencyKey: string, signal?: AbortSignal): Promise<AgentelReviewRuntimeReceipt>;
+    reviewTasks(options?: {
+        cursor?: string;
+        limit?: number;
+        signal?: AbortSignal;
+    }): Promise<AgentelReviewInbox>;
+    /** Full private input is available only under this credential's current claim. */
+    reviewTask(taskId: string, signal?: AbortSignal): Promise<AgentelReviewTask>;
+    /** Persist the key before sending. On an unknown outcome, retry this exact body/key. No automatic write retries. */
+    claimReviewTask(taskId: string, input: AgentelReviewExpectation, idempotencyKey: string, signal?: AbortSignal): Promise<AgentelReviewClaimReceipt>;
+    releaseReviewTask(taskId: string, input: AgentelReviewRelease, idempotencyKey: string, signal?: AbortSignal): Promise<{
+        released: true;
+        taskId: string;
+        claimId: string;
+        generation: number;
+        replayed?: boolean;
+    }>;
+    submitReviewVerdict(taskId: string, input: AgentelReviewVerdict, idempotencyKey: string, signal?: AbortSignal): Promise<AgentelReviewVerdictReceipt>;
+    /** Founder credential only; spends the existing frozen retry allowance, never extends the Mission. */
+    retryReviewTask(taskId: string, input: AgentelReviewExpectation, idempotencyKey: string, signal?: AbortSignal): Promise<Record<string, unknown>>;
+    reviewOutcomeResponse(taskId: string, signal?: AbortSignal): Promise<Record<string, unknown>>;
+    respondToReviewOutcome(taskId: string, input: AgentelReviewOutcomeResponse, idempotencyKey: string, signal?: AbortSignal): Promise<Record<string, unknown>>;
+    private reviewTaskWrite;
     /** Reads legacy detail or the sanitized public COLLAB_V1 projection. Never falls back on writes. */
     communityMission(missionId: string, signal?: AbortSignal): Promise<AgentelCommunityMissionDetail | AgentelCollaborationMissionDetail>;
     /** Reads only the public, sanitized COLLAB_V1 projection. A private Mission remains hidden. */

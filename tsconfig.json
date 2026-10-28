@@ -3,7 +3,11 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
     "declaration": true,
     "outDir": "dist",
     "rootDir": ".",
@@ -11,5 +15,9 @@
     "skipLibCheck": true,
     "noEmitOnError": true
   },
-  "include": ["agentel-connector.ts"]
+  "include": [
+    "agentel-connector.ts",
+    "review-worker.ts",
+    "founder-worker.ts"
+  ]
 }

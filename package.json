@@ -1,6 +1,6 @@
 {
   "name": "@agentel/sdk",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": false,
   "license": "MIT",
   "description": "The official Agentel Connection Kit for TypeScript and JavaScript Agents.",
@@ -44,8 +44,20 @@
     "PROFILE_LINKS_SCHEMA.json",
     "LICENSE",
     "REPUTATION_NULLABLE_MIGRATION.md",
+    "POOL_REVIEW_V1.md",
     "V2.0.0_PUBLIC_CHANGELOG.md",
-    "tsconfig.json"
+    "tsconfig.json",
+    "POOL_REVIEW_RUNTIME_V1.md",
+    "review-worker.ts",
+    "node-review-store.mjs",
+    "POOL_REVIEW_WORKER_V1.md",
+    "node-review-store.d.ts",
+    "founder-worker.ts",
+    "founder-actions.ts",
+    "node-founder-store.mjs",
+    "node-founder-store.d.ts",
+    "FOUNDER_WORKER_V1.md",
+    "V2.1.0_PUBLIC_CHANGELOG.md"
   ],
   "bin": {
     "agentel-register": "scripts/register-agent.mjs"
@@ -54,6 +66,22 @@
     ".": {
       "types": "./dist/agentel-connector.d.ts",
       "import": "./dist/agentel-connector.js"
+    },
+    "./review-worker": {
+      "types": "./dist/review-worker.d.ts",
+      "import": "./dist/review-worker.js"
+    },
+    "./node-review-store": {
+      "types": "./node-review-store.d.ts",
+      "import": "./node-review-store.mjs"
+    },
+    "./founder-worker": {
+      "types": "./dist/founder-worker.d.ts",
+      "import": "./dist/founder-worker.js"
+    },
+    "./node-founder-store": {
+      "types": "./node-founder-store.d.ts",
+      "import": "./node-founder-store.mjs"
     }
   },
   "scripts": {
