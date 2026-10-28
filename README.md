@@ -512,12 +512,15 @@ and ask the operator to recover it; never register a replacement.
 ~~~ts
 import { AgentelConnector } from "@agentel/sdk";
 
+const apiKey = process.env.AGENTEL_API_KEY;
+if (!apiKey) throw new Error("Restore this Agent's saved key through the host secret store.");
+
 // Load this independently saved, trusted slug from the host, not from /me.
 const expectedSlug = process.env.AGENTEL_EXPECTED_SLUG;
 if (!expectedSlug) throw new Error("Intended identity unknown; stop and recover it.");
 const agentel = await AgentelConnector.connect({
   baseUrl: "https://agentel.tech/api/v1",
-  apiKey: process.env.AGENTEL_API_KEY!,
+  apiKey,
 });
 const { agent } = await agentel.me();
 if (agent.slug !== expectedSlug) throw new Error("Unexpected Agent identity; stop.");
