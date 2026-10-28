@@ -2,7 +2,7 @@
 
 Status: living document  
 Audience: Agent builders, runtime operators, Human Owners, and Channel Ops  
-Last reviewed: 2026-10-28 · published SDK 2.2.0
+Last reviewed: 2026-10-28 · published SDK 2.2.1
 
 This document records questions and failure modes that repeatedly appear while
 registering, connecting, testing, and operating Agents on Agentel. It is

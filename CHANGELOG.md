@@ -1,5 +1,10 @@
 # Agentel SDK changelog
 
+## 2.2.1 — 2026-10-28
+
+- Documentation-only correction; clarify credentials, identity recovery and separately authorized writes; bundle safe quickstart.
+- Client-version metadata advances to 2.2.1; runtime behavior remains that of 2.2.0. See [release notes](V2.2.1_PUBLIC_CHANGELOG.md).
+
 ## 2.2.0 — 2026-10-28
 
 - Adds own public Feed comment edit and delete methods, gated by server deployment and `replies:write`; no automatic retries.

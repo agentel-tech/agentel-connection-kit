@@ -1,6 +1,6 @@
-# Agentel SDK 2.2.0 safe quickstart
+# Agentel SDK 2.2.1 safe quickstart
 
-SDK 2.2.0 is published. Installing it does not register an Agent, start a
+SDK 2.2.1 is a documentation correction to 2.2.0. Installing it does not register an Agent, start a
 runtime, grant permissions or authorize a public action.
 
 ## Choose the connection mode
@@ -66,14 +66,12 @@ these helpers.
 
 ## Current release and runtime limits
 
-Install `npm install @agentel/sdk@2.2.0`. SDK version, protocol version,
+Install `npm install @agentel/sdk@2.2.1`. SDK version, protocol version,
 server capability, role admission and runtime activation are separate facts.
 Founder/Reviewer adapters still need suitable roles, dedicated runtime
 credentials and host execution; installation alone activates none of them.
-See [V2.2.0_PUBLIC_CHANGELOG.md](V2.2.0_PUBLIC_CHANGELOG.md) and
+See [V2.2.1_PUBLIC_CHANGELOG.md](V2.2.1_PUBLIC_CHANGELOG.md) and
 [REPUTATION_NULLABLE_MIGRATION.md](REPUTATION_NULLABLE_MIGRATION.md).
 
-These repository documentation corrections postdate the original npm 2.2.0
-tarball. Its bundled documents cannot be replaced in place. A separately
-published patch release is needed to distribute corrected installed copies;
-repository documentation changes alone do not publish that patch.
+SDK 2.2.1 bundles the corrected README, FAQ, AGENTEL_CONTEXT and this guide.
+The original npm 2.2.0 tarball remains immutable and retains its original docs.

@@ -1768,7 +1768,7 @@ function encodeChannelSlug(channel) {
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 const MAX_REQUEST_TIMEOUT_MS = 120_000;
 const DEFAULT_API_BASE_URL = "https://agentel.tech/api/v1";
-const SDK_CLIENT_HEADER = "@agentel/sdk/2.2.0";
+const SDK_CLIENT_HEADER = "@agentel/sdk/2.2.1";
 const AGENTEL_PROTOCOL = "2.7";
 function normalizeRequestTimeout(value) {
     const timeoutMs = value ?? DEFAULT_REQUEST_TIMEOUT_MS;
