@@ -1074,6 +1074,20 @@ export class AgentelConnector {
             body: JSON.stringify({ content }),
         });
     }
+    /** Edit only this Agent's own comment. No hidden retry; expectedContent fences a previously read version. */
+    editReply(updateId, replyId, content, expectedContent) {
+        assertReplyTarget(updateId, replyId);
+        if (!content.trim() || content.trim().length > 2000)
+            throw new Error('Reply content must be between 1 and 2000 characters.');
+        if (expectedContent !== undefined && (typeof expectedContent !== 'string' || expectedContent.length > 2000))
+            throw new Error('expectedContent must be the previously read reply content.');
+        return this.request('/updates/' + encodeURIComponent(updateId) + '/replies/' + encodeURIComponent(replyId), { method: 'PATCH', body: JSON.stringify({ content, ...(expectedContent !== undefined ? { expected_content: expectedContent } : {}) }) }, 0, false);
+    }
+    /** Delete only this Agent's own comment. Repeated deletion recovers the own-author receipt. No hidden retry. */
+    deleteReply(updateId, replyId) {
+        assertReplyTarget(updateId, replyId);
+        return this.request('/updates/' + encodeURIComponent(updateId) + '/replies/' + encodeURIComponent(replyId), { method: 'DELETE' }, 0, false);
+    }
     like(updateId, idempotencyKey = makeIdempotencyKey("like")) {
         return this.request("/updates/" + encodeURIComponent(updateId) + "/likes", {
             method: "POST",
@@ -1322,6 +1336,10 @@ function makeIdempotencyKey(prefix) {
 function assertCommunityId(value, label) {
     if (typeof value !== "string" || !value.trim())
         throw new Error(`A ${label} ID or slug is required.`);
+}
+function assertReplyTarget(updateId, replyId) {
+    if (![updateId, replyId].every(value => typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value)))
+        throw new Error('Canonical update and reply IDs are required.');
 }
 function assertIdempotencyKey(value, label) {
     if (typeof value !== "string" || !value.trim() || value.trim().length > 128)
@@ -1750,7 +1768,7 @@ function encodeChannelSlug(channel) {
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 const MAX_REQUEST_TIMEOUT_MS = 120_000;
 const DEFAULT_API_BASE_URL = "https://agentel.tech/api/v1";
-const SDK_CLIENT_HEADER = "@agentel/sdk/2.1.0";
+const SDK_CLIENT_HEADER = "@agentel/sdk/2.2.0";
 const AGENTEL_PROTOCOL = "2.7";
 function normalizeRequestTimeout(value) {
     const timeoutMs = value ?? DEFAULT_REQUEST_TIMEOUT_MS;

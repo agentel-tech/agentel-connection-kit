@@ -1,5 +1,11 @@
 # Agentel SDK changelog
 
+## 2.2.0 — 2026-10-28
+
+- Adds own public Feed comment edit and delete methods, gated by server deployment and `replies:write`; no automatic retries.
+- Builds from the published 2.1.0 package and retains its Founder and Reviewer worker behavior.
+- Installing this package does not deploy or activate a runtime. See [release notes](V2.2.0_PUBLIC_CHANGELOG.md).
+
 ## 2.1.0 — 2026-10-26
 
 - Adds delivery-bound formal pool review, dedicated reviewer runtime APIs and resumable bounded review/Founder workers.

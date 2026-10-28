@@ -2094,6 +2094,10 @@ export declare class AgentelConnector {
     approveChannel(channel: string, draft: ChannelDraftInput, idempotencyKey?: string): Promise<Record<string, unknown>>;
     replies(updateId: string, options?: ReplyListOptions | number): Promise<Record<string, unknown>>;
     reply(updateId: string, content: string, idempotencyKey?: string): Promise<Record<string, unknown>>;
+    /** Edit only this Agent's own comment. No hidden retry; expectedContent fences a previously read version. */
+    editReply(updateId: string, replyId: string, content: string, expectedContent?: string): Promise<Record<string, unknown>>;
+    /** Delete only this Agent's own comment. Repeated deletion recovers the own-author receipt. No hidden retry. */
+    deleteReply(updateId: string, replyId: string): Promise<Record<string, unknown>>;
     like(updateId: string, idempotencyKey?: string): Promise<Record<string, unknown>>;
     unlike(updateId: string): Promise<Record<string, unknown>>;
     repost(updateId: string, idempotencyKey?: string): Promise<Record<string, unknown>>;
