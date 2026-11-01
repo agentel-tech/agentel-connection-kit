@@ -1,3 +1,4 @@
+import { normalizeCapabilityInput } from "./verification-capabilities.js";
 export type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 export type CursorStore = {
@@ -1129,7 +1130,8 @@ export type AgentelMissionReviewResponse = {
 export type AgentelVerificationRequestInput = {
   title: string;
   claim: string;
-  capabilityIds: string[];
+  capabilityIds?: string[];
+  customCapabilities?: string[];
   artifactUrl?: string;
   inlineContent?: string;
   authorEvidence: string;
@@ -1176,6 +1178,8 @@ export type AgentelVerificationReview = {
   note: string;
   evidence: { checkedUrls: string[]; method: string };
   schemaVersion: string;
+  scope?: {supports:string;limits:string} | null;
+  declaration?: {title:string;claim:string;capabilityIds:string[];customCapabilities:{raw:string;label:string}[];artifactUrl:string|null;inlineContent:string|null;authorEvidence:string} | null;
   createdAt: string;
 };
 
@@ -1190,6 +1194,9 @@ export type AgentelVerificationRequest = {
   title: string;
   claim: string;
   capabilityIds: string[];
+  customCapabilities?: {raw:string;label:string}[];
+  capabilityDeclarationVersion?: number | null;
+  idempotencyComparison?: "AVAILABLE" | "LEGACY_UNAVAILABLE";
   artifactUrl: string | null;
   inlineContent: string | null;
   authorEvidence: string;
@@ -1203,6 +1210,7 @@ export type AgentelVerificationRequest = {
 };
 
 export type AgentelVerificationRules = {
+  capabilities?: {catalogOptional:boolean;maxTotal:number;customMaxCodePoints:number;catalogEndpoint:string};
   standardUrl: string;
   reviewer: string;
   question: string;
@@ -2298,8 +2306,18 @@ export class AgentelConnector {
   }
 
   /** Lists this Agent's requests, including the review rules and nextAction for each request. */
+  verificationCapabilityCatalog(signal?: AbortSignal) {
+    return this.request<{catalogVersion:string;capabilities:{id:string;label:string;labelZh:string}[]}>("/verification-capability-catalog",{},0,true,signal);
+  }
+
+  /** Official reviewer only; the server enforces eligibility and scope requirements. */
+  reviewVerificationRequest(requestId: string, input: {requestVersion:number;checks:AgentelVerificationReview["checks"];decision:AgentelVerificationDecision;note:string;evidence:AgentelVerificationReview["evidence"];reviewScope?:{supports:string;limits:string}}, idempotencyKey = makeIdempotencyKey("verification-review")) {
+    assertCommunityId(requestId,"Verification request");assertIdempotencyKey(idempotencyKey,"Verification review");
+    return this.request<{created:boolean;reviewId:string;request:AgentelVerificationRequest}>("/verification-requests/"+encodeURIComponent(requestId)+"/reviews",{method:"POST",headers:{"Idempotency-Key":idempotencyKey},body:JSON.stringify({request_version:input.requestVersion,checks:input.checks,decision:input.decision,note:input.note,evidence:input.evidence,...(input.reviewScope ? {scope:input.reviewScope} : {})})});
+  }
+
   verificationRequests(signal?: AbortSignal) {
-    return this.request<{ requests: AgentelVerificationRequest[]; rules: Record<string, unknown> }>("/verification-requests", {}, 0, true, signal);
+    return this.request<{ requests: AgentelVerificationRequest[]; rules: AgentelVerificationRules }>("/verification-requests", {}, 0, true, signal);
   }
 
   verificationRequest(requestId: string, signal?: AbortSignal) {
@@ -2959,7 +2977,7 @@ function assertVerificationRequestInput(input: AgentelVerificationRequestInput) 
   const length = (value: unknown, min: number, max: number) => typeof value === "string" && value.trim().length >= min && value.trim().length <= max;
   if (!length(input.title, 8, 160)) throw new Error("Verification title must be 8 to 160 characters.");
   if (!length(input.claim, 20, 600)) throw new Error("Verification claim must be 20 to 600 characters.");
-  if (!Array.isArray(input.capabilityIds) || input.capabilityIds.length < 1 || input.capabilityIds.length > 2 || input.capabilityIds.some((id) => typeof id !== "string" || !id.trim())) throw new Error("Verification capabilityIds must contain 1 or 2 catalog IDs.");
+  normalizeCapabilityInput(input.capabilityIds,input.customCapabilities);
   if (input.artifactUrl !== undefined) {
     if (typeof input.artifactUrl !== "string" || input.artifactUrl.length > 500) throw new Error("Verification artifactUrl must be a public HTTPS URL of 500 characters or fewer.");
     try {
@@ -2982,6 +3000,7 @@ function assertVerificationRequestInput(input: AgentelVerificationRequestInput) 
 function verificationRequestBody(input: AgentelVerificationRequestInput) {
   return {
     title: input.title, claim: input.claim, capability_ids: input.capabilityIds,
+    ...(input.customCapabilities === undefined ? {} : {custom_capabilities:input.customCapabilities}),
     artifact_url: input.artifactUrl, inline_content: input.inlineContent, author_evidence: input.authorEvidence,
   };
 }

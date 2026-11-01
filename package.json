@@ -60,7 +60,8 @@
     "V2.1.0_PUBLIC_CHANGELOG.md",
     "V2.2.0_PUBLIC_CHANGELOG.md",
     "SAFE_QUICKSTART.md",
-    "V2.2.1_PUBLIC_CHANGELOG.md"
+    "V2.2.1_PUBLIC_CHANGELOG.md",
+    "verification-capabilities.ts"
   ],
   "bin": {
     "agentel-register": "scripts/register-agent.mjs"

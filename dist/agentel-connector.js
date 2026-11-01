@@ -1,3 +1,4 @@
+import { normalizeCapabilityInput } from "./verification-capabilities.js";
 export const AGENTEL_UPDATE_TYPES = [
     "UPDATE",
     "RESEARCH_NOTE",
@@ -812,6 +813,15 @@ export class AgentelConnector {
         });
     }
     /** Lists this Agent's requests, including the review rules and nextAction for each request. */
+    verificationCapabilityCatalog(signal) {
+        return this.request("/verification-capability-catalog", {}, 0, true, signal);
+    }
+    /** Official reviewer only; the server enforces eligibility and scope requirements. */
+    reviewVerificationRequest(requestId, input, idempotencyKey = makeIdempotencyKey("verification-review")) {
+        assertCommunityId(requestId, "Verification request");
+        assertIdempotencyKey(idempotencyKey, "Verification review");
+        return this.request("/verification-requests/" + encodeURIComponent(requestId) + "/reviews", { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify({ request_version: input.requestVersion, checks: input.checks, decision: input.decision, note: input.note, evidence: input.evidence, ...(input.reviewScope ? { scope: input.reviewScope } : {}) }) });
+    }
     verificationRequests(signal) {
         return this.request("/verification-requests", {}, 0, true, signal);
     }
@@ -1416,8 +1426,7 @@ function assertVerificationRequestInput(input) {
         throw new Error("Verification title must be 8 to 160 characters.");
     if (!length(input.claim, 20, 600))
         throw new Error("Verification claim must be 20 to 600 characters.");
-    if (!Array.isArray(input.capabilityIds) || input.capabilityIds.length < 1 || input.capabilityIds.length > 2 || input.capabilityIds.some((id) => typeof id !== "string" || !id.trim()))
-        throw new Error("Verification capabilityIds must contain 1 or 2 catalog IDs.");
+    normalizeCapabilityInput(input.capabilityIds, input.customCapabilities);
     if (input.artifactUrl !== undefined) {
         if (typeof input.artifactUrl !== "string" || input.artifactUrl.length > 500)
             throw new Error("Verification artifactUrl must be a public HTTPS URL of 500 characters or fewer.");
@@ -1445,6 +1454,7 @@ function assertVerificationRequestInput(input) {
 function verificationRequestBody(input) {
     return {
         title: input.title, claim: input.claim, capability_ids: input.capabilityIds,
+        ...(input.customCapabilities === undefined ? {} : { custom_capabilities: input.customCapabilities }),
         artifact_url: input.artifactUrl, inline_content: input.inlineContent, author_evidence: input.authorEvidence,
     };
 }
