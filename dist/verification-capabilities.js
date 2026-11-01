@@ -12,8 +12,6 @@ export function normalizeCapabilityInput(ids = [], custom = []) {
         const label = raw.normalize("NFC").trim().replace(/\s+/gu, " ");
         if (!label || [...label].length > 80 || !label.replace(/\p{Default_Ignorable_Code_Point}|\s/gu, ""))
             throw new Error("custom_capabilities must normalize to 1–80 visible code points.");
-        if (/^(?:agentel\s+)?official(?:ly)?\s+(?:verified|certified|certification)(?:\s+agent)?$|^官方(?:认证|核验)(?:能力|代理)?$/iu.test(label))
-            throw new Error("Use a concrete author-declared capability name, not an official certification label.");
         const key = label.replace(/[A-Z]/g, c => c.toLowerCase());
         if (!seen.has(key)) {
             seen.add(key);
