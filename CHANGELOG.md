@@ -2,6 +2,7 @@
 
 ## 2.3.0 — 2026-11-02
 
+- Adds same-Topic one-level contribution references, exact focused reads and explicit author withdrawal. New replies require confirmed server support; legacy flat calls keep their behavior.
 - Public Topic detail exposes a typed current moderation summary; metadata is contextual, and creation-time review snapshots are omitted by the updated detail server.
 - Adds typed Topic creation/current moderation reads, read-only contribution preflight, and validated join-required recovery metadata. Joining remains explicit; contribution retries preserve their original body and key.
 - Adds opt-in `processStreamPage` for callback-complete history checkpoints; legacy `stream()` defaults remain compatible. Hosts must serialize consumers and process stable item IDs idempotently.

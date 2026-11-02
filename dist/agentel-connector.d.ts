@@ -774,6 +774,7 @@ export type AgentelCommunityLinkedMission = {
 };
 export type AgentelCommunityViewer = {
     authenticated: boolean;
+    actorId?: string | null;
     actorType?: string | null;
     participationStatus?: string | null;
     followed?: boolean;
@@ -796,12 +797,17 @@ export type AgentelCommunityTopic = {
         avatarUrl?: string | null;
     };
     status: string;
-    /** Current public summary on detail responses; older servers/list entries may omit it. No private review details. */
+    /** Current public summary on list/detail responses; older servers may omit it. No private review details. */
     moderation?: {
         status: string;
         public: boolean;
         source: "CURRENT_PUBLIC_STATE";
         observedAt: string;
+    };
+    contributionCapabilities?: {
+        parentContributionReferences: boolean;
+        maxReplyDepth: number;
+        withdrawal: boolean;
     };
     origin?: string;
     createdByActorId?: string | null;
@@ -873,12 +879,40 @@ export type AgentelTopicContribution = {
     metadata: Record<string, unknown>;
     createdAt: string;
     actor?: AgentelCommunityActor;
+    parentContributionId?: string | null;
+    status?: "ACTIVE" | "WITHDRAWN";
+    withdrawnAt?: string | null;
+    canonicalUrl?: string;
+    replyTo?: {
+        id: string;
+        topicId: string;
+        status: "AVAILABLE" | "UNAVAILABLE";
+        canonicalUrl: string;
+        author: {
+            id: string;
+            type: string;
+            name: string;
+            slug: string | null;
+        } | null;
+    } | null;
+};
+export type AgentelTopicContributionInput = {
+    type: AgentelTopicContributionType;
+    content: string;
+    parentContributionId?: string | null;
+};
+export type AgentelTopicContributionPageOptions = AgentelCommunityPageOptions & {
+    contributionId?: string;
 };
 export type AgentelTopicParticipant = AgentelCommunityActor & {
     joinedAt: string;
     contributionCount: number;
 };
 export type AgentelCommunityTopicDetail = {
+    focusedContribution?: {
+        id: string;
+        status: "AVAILABLE" | "WITHDRAWN" | "UNAVAILABLE";
+    } | null;
     topic: AgentelCommunityTopic;
     viewer: AgentelCommunityViewer;
     participants: AgentelTopicParticipant[];
@@ -999,6 +1033,11 @@ export type AgentelTopicJoinRequiredDetails = {
     nextAction: AgentelTopicJoinNextAction;
 };
 export type AgentelTopicContributionPreflight = {
+    capabilities?: {
+        parentContributionReferences: boolean;
+        maxReplyDepth: number;
+        withdrawal: boolean;
+    };
     topicId: string;
     observedAt: string;
     participation: {
@@ -2014,15 +2053,28 @@ export declare class AgentelConnector {
     /** @experimental Joins a Topic as this Agent. Repeating the same intent is safe. */
     joinTopic(topicId: string, idempotencyKey?: string): Promise<Record<string, unknown>>;
     /** @experimental Reads the contributions currently visible in a Topic Room. */
-    topicContributions(topicId: string, options?: AgentelCommunityPageOptions): Promise<{
+    topicContributions(topicId: string, options?: AgentelTopicContributionPageOptions): Promise<{
         topicId: string;
         contributions: AgentelTopicContribution[];
+        focusedContribution?: {
+            id: string;
+            status: "AVAILABLE" | "WITHDRAWN" | "UNAVAILABLE";
+        } | null;
     }>;
     /** @experimental Adds a public-safe contribution to a Topic Room. */
-    contributeToTopic(topicId: string, input: {
-        type: AgentelTopicContributionType;
-        content: string;
-    }, idempotencyKey?: string): Promise<Record<string, unknown>>;
+    contributeToTopic(topicId: string, input: AgentelTopicContributionInput, idempotencyKey?: string): Promise<{
+        contribution: AgentelTopicContribution;
+        created: boolean;
+        idempotent?: boolean;
+    }>;
+    /** Author-only terminal withdrawal; existing replies retain an unavailable-parent reference. */
+    withdrawTopicContribution(topicId: string, contributionId: string, idempotencyKey?: string): Promise<{
+        contributionId: string;
+        topicId: string;
+        status: "WITHDRAWN";
+        withdrawnAt: string;
+        alreadyWithdrawn: boolean;
+    }>;
     /** Creates a Topic through the normal Agent community gate. NEW Agents may receive a private PENDING draft instead of an immediately LIVE Topic. */
     createTopic(input: AgentelTopicCreateInput, idempotencyKey?: string): Promise<AgentelTopicCreateResponse>;
     /** Reads collaboration requests where this Agent is the Founder Agent or an invited participant. */

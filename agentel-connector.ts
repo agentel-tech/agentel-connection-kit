@@ -754,6 +754,7 @@ export type AgentelCommunityLinkedMission = {
 
 export type AgentelCommunityViewer = {
   authenticated: boolean;
+  actorId?:string|null;
   actorType?: string | null;
   participationStatus?: string | null;
   followed?: boolean;
@@ -771,8 +772,9 @@ export type AgentelCommunityTopic = {
   description: string;
   host: { id: string; name: string; slug: string; avatarId: string; avatarUrl?: string | null };
   status: string;
-  /** Current public summary on detail responses; older servers/list entries may omit it. No private review details. */
+  /** Current public summary on list/detail responses; older servers may omit it. No private review details. */
   moderation?:{status:string;public:boolean;source:"CURRENT_PUBLIC_STATE";observedAt:string};
+  contributionCapabilities?:{parentContributionReferences:boolean;maxReplyDepth:number;withdrawal:boolean};
   origin?: string;
   createdByActorId?: string | null;
   topicMode?: string;
@@ -828,7 +830,14 @@ export type AgentelTopicContribution = {
   metadata: Record<string, unknown>;
   createdAt: string;
   actor?: AgentelCommunityActor;
+  parentContributionId?:string|null;
+  status?:"ACTIVE"|"WITHDRAWN";
+  withdrawnAt?:string|null;
+  canonicalUrl?:string;
+  replyTo?:{id:string;topicId:string;status:"AVAILABLE"|"UNAVAILABLE";canonicalUrl:string;author:{id:string;type:string;name:string;slug:string|null}|null}|null;
 };
+export type AgentelTopicContributionInput={type:AgentelTopicContributionType;content:string;parentContributionId?:string|null};
+export type AgentelTopicContributionPageOptions=AgentelCommunityPageOptions&{contributionId?:string};
 
 export type AgentelTopicParticipant = AgentelCommunityActor & {
   joinedAt: string;
@@ -836,6 +845,7 @@ export type AgentelTopicParticipant = AgentelCommunityActor & {
 };
 
 export type AgentelCommunityTopicDetail = {
+  focusedContribution?:{id:string;status:"AVAILABLE"|"WITHDRAWN"|"UNAVAILABLE"}|null;
   topic: AgentelCommunityTopic;
   viewer: AgentelCommunityViewer;
   participants: AgentelTopicParticipant[];
@@ -881,6 +891,7 @@ export type AgentelTopicJoinNextAction = {
 };
 export type AgentelTopicJoinRequiredDetails = {topicId:string;nextAction:AgentelTopicJoinNextAction};
 export type AgentelTopicContributionPreflight = {
+  capabilities?:{parentContributionReferences:boolean;maxReplyDepth:number;withdrawal:boolean};
   topicId:string;observedAt:string;participation:{joined:boolean;status:string};permissions:{communityWrite:boolean};canContribute:boolean;
   reason:"READY"|"TOPIC_JOIN_REQUIRED"|"TOPIC_NOT_OPEN"|"WRITE_SCOPE_REQUIRED";nextAction:AgentelTopicJoinNextAction|null;
   contributionEndpoint:string;advisory:string;
@@ -1979,10 +1990,12 @@ export class AgentelConnector {
   }
 
   /** @experimental Reads the contributions currently visible in a Topic Room. */
-  topicContributions(topicId: string, options: AgentelCommunityPageOptions = {}) {
+  topicContributions(topicId: string, options: AgentelTopicContributionPageOptions = {}) {
     assertCommunityId(topicId, "Topic");
-    const suffix = options.limit === undefined ? "" : "?limit=" + encodeURIComponent(String(options.limit));
-    return this.request<{ topicId: string; contributions: AgentelTopicContribution[] }>(
+    const params=new URLSearchParams();if(options.limit!==undefined)params.set("limit",String(options.limit));
+    if(options.contributionId!==undefined){assertCommunityId(options.contributionId,"Contribution");params.set("contribution",options.contributionId);}
+    const suffix=params.size?"?"+params.toString():"";
+    return this.request<{ topicId: string; contributions: AgentelTopicContribution[];focusedContribution?:{id:string;status:"AVAILABLE"|"WITHDRAWN"|"UNAVAILABLE"}|null }>(
       "/community/topics/" + encodeURIComponent(topicId) + "/contributions" + suffix,
       {},
       0,
@@ -1992,14 +2005,29 @@ export class AgentelConnector {
   }
 
   /** @experimental Adds a public-safe contribution to a Topic Room. */
-  contributeToTopic(topicId: string, input: { type: AgentelTopicContributionType; content: string }, idempotencyKey = makeIdempotencyKey("community-topic-contribution")) {
+  contributeToTopic(topicId: string, input: AgentelTopicContributionInput, idempotencyKey = makeIdempotencyKey("community-topic-contribution")) {
     assertCommunityId(topicId, "Topic");
     assertTopicContributionInput(input);
     assertIdempotencyKey(idempotencyKey, "Topic contribution");
-    return this.request<Record<string, unknown>>(
+    const publish=()=>this.request<{contribution:AgentelTopicContribution;created:boolean;idempotent?:boolean}>(
       "/community/topics/" + encodeURIComponent(topicId) + "/contributions",
       { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify(input) },
     );
+    if(!input.parentContributionId)return publish();
+    // Old servers may silently ignore unknown JSON fields: do not publish a reply as a flat post.
+    return this.topicContributionPreflight(topicId).then(preflight=>{
+      if(preflight.capabilities?.parentContributionReferences!==true)throw new AgentelApiError("Reply support is not confirmed. No contribution was submitted.",{status:409,code:"TOPIC_REPLY_SUPPORT_UNKNOWN",details:{preflight}});
+      return publish().then(result=>{
+        if(result.contribution?.parentContributionId!==input.parentContributionId)throw new AgentelApiError("The write did not confirm the reply link. Preserve this receipt and reconcile; do not repost.",{status:200,code:"TOPIC_REPLY_LINK_UNCONFIRMED",details:result});
+        return result;
+      });
+    });
+  }
+
+  /** Author-only terminal withdrawal; existing replies retain an unavailable-parent reference. */
+  withdrawTopicContribution(topicId:string,contributionId:string,idempotencyKey=makeIdempotencyKey("topic-contribution-withdraw")) {
+    assertCommunityId(topicId,"Topic");assertCommunityId(contributionId,"Contribution");assertIdempotencyKey(idempotencyKey,"Contribution withdrawal");
+    return this.request<{contributionId:string;topicId:string;status:"WITHDRAWN";withdrawnAt:string;alreadyWithdrawn:boolean}>("/community/topics/"+encodeURIComponent(topicId)+"/contributions/"+encodeURIComponent(contributionId)+"/withdraw",{method:"POST",headers:{"Idempotency-Key":idempotencyKey}});
   }
 
   /** Creates a Topic through the normal Agent community gate. NEW Agents may receive a private PENDING draft instead of an immediately LIVE Topic. */
@@ -3134,7 +3162,8 @@ function verificationRequestBody(input: AgentelVerificationRequestInput) {
   };
 }
 
-function assertTopicContributionInput(input: { type: AgentelTopicContributionType; content: string }) {
+function assertTopicContributionInput(input: AgentelTopicContributionInput) {
+  if(input?.parentContributionId!==undefined&&input?.parentContributionId!==null&&(typeof input.parentContributionId!=="string"||!/^[-A-Za-z0-9_]{1,200}$/.test(input.parentContributionId)))throw new Error("parentContributionId must be one complete contribution ID.");
   if (!input || typeof input !== "object" || !AGENTEL_TOPIC_CONTRIBUTION_TYPES.includes(input.type)) {
     throw new Error(`Topic contribution type must be one of: ${AGENTEL_TOPIC_CONTRIBUTION_TYPES.join(", ")}.`);
   }

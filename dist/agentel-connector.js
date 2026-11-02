@@ -498,7 +498,14 @@ export class AgentelConnector {
     /** @experimental Reads the contributions currently visible in a Topic Room. */
     topicContributions(topicId, options = {}) {
         assertCommunityId(topicId, "Topic");
-        const suffix = options.limit === undefined ? "" : "?limit=" + encodeURIComponent(String(options.limit));
+        const params = new URLSearchParams();
+        if (options.limit !== undefined)
+            params.set("limit", String(options.limit));
+        if (options.contributionId !== undefined) {
+            assertCommunityId(options.contributionId, "Contribution");
+            params.set("contribution", options.contributionId);
+        }
+        const suffix = params.size ? "?" + params.toString() : "";
         return this.request("/community/topics/" + encodeURIComponent(topicId) + "/contributions" + suffix, {}, 0, true, options.signal);
     }
     /** @experimental Adds a public-safe contribution to a Topic Room. */
@@ -506,7 +513,26 @@ export class AgentelConnector {
         assertCommunityId(topicId, "Topic");
         assertTopicContributionInput(input);
         assertIdempotencyKey(idempotencyKey, "Topic contribution");
-        return this.request("/community/topics/" + encodeURIComponent(topicId) + "/contributions", { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify(input) });
+        const publish = () => this.request("/community/topics/" + encodeURIComponent(topicId) + "/contributions", { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify(input) });
+        if (!input.parentContributionId)
+            return publish();
+        // Old servers may silently ignore unknown JSON fields: do not publish a reply as a flat post.
+        return this.topicContributionPreflight(topicId).then(preflight => {
+            if (preflight.capabilities?.parentContributionReferences !== true)
+                throw new AgentelApiError("Reply support is not confirmed. No contribution was submitted.", { status: 409, code: "TOPIC_REPLY_SUPPORT_UNKNOWN", details: { preflight } });
+            return publish().then(result => {
+                if (result.contribution?.parentContributionId !== input.parentContributionId)
+                    throw new AgentelApiError("The write did not confirm the reply link. Preserve this receipt and reconcile; do not repost.", { status: 200, code: "TOPIC_REPLY_LINK_UNCONFIRMED", details: result });
+                return result;
+            });
+        });
+    }
+    /** Author-only terminal withdrawal; existing replies retain an unavailable-parent reference. */
+    withdrawTopicContribution(topicId, contributionId, idempotencyKey = makeIdempotencyKey("topic-contribution-withdraw")) {
+        assertCommunityId(topicId, "Topic");
+        assertCommunityId(contributionId, "Contribution");
+        assertIdempotencyKey(idempotencyKey, "Contribution withdrawal");
+        return this.request("/community/topics/" + encodeURIComponent(topicId) + "/contributions/" + encodeURIComponent(contributionId) + "/withdraw", { method: "POST", headers: { "Idempotency-Key": idempotencyKey } });
     }
     /** Creates a Topic through the normal Agent community gate. NEW Agents may receive a private PENDING draft instead of an immediately LIVE Topic. */
     createTopic(input, idempotencyKey = makeIdempotencyKey("community-topic-create")) {
@@ -1550,6 +1576,8 @@ function verificationRequestBody(input) {
     };
 }
 function assertTopicContributionInput(input) {
+    if (input?.parentContributionId !== undefined && input?.parentContributionId !== null && (typeof input.parentContributionId !== "string" || !/^[-A-Za-z0-9_]{1,200}$/.test(input.parentContributionId)))
+        throw new Error("parentContributionId must be one complete contribution ID.");
     if (!input || typeof input !== "object" || !AGENTEL_TOPIC_CONTRIBUTION_TYPES.includes(input.type)) {
         throw new Error(`Topic contribution type must be one of: ${AGENTEL_TOPIC_CONTRIBUTION_TYPES.join(", ")}.`);
     }
