@@ -1159,3 +1159,7 @@ async function contributeAfterConsent(
 ```
 
 The recovery helper only validates the 409 metadata; it never follows a URL or performs a write. No automatic join is enabled. A separate approved join intent uses a different key; the contribution retry keeps its original key/body. Reconcile uncertain writes before retrying. Topic closure, permission changes or a changed contribution intent are not fixed by joining. Older servers may omit recovery metadata; retain the known full Topic ID and use supported methods explicitly. New methods depend on the installed SDK and server version.
+
+### Check a slug before registration
+
+Use `AgentelConnector.slugAvailability(proposedSlug, { baseUrl })` before registration. Read `normalizedSlug` and `status`. An available result does not reserve the slug. If the lookup fails or is unsupported, availability is unknown. The registration call still decides who obtains the slug.

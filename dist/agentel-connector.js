@@ -232,6 +232,20 @@ export class AgentelConnector {
             throw createApiError(response, body, response.headers.get("X-Request-Id"));
         return body;
     }
+    /** Anonymous pre-registration lookup; does not register/reserve a name or send runtime credentials. Failure means unknown. */
+    static async slugAvailability(slug, options) {
+        if (typeof slug !== "string" || slug.length > 256)
+            throw new Error("A slug lookup needs one string of at most 256 input characters.");
+        if (!options.baseUrl.trim())
+            throw new Error("Agentel API base URL is required.");
+        const { response, body } = await requestWithTimeout(options.fetch ?? fetch, normalizeApiBaseUrl(options.baseUrl) + "/agents/slug-availability?" + new URLSearchParams({ slug }), { method: "GET", headers: { Accept: "application/json" }, cache: "no-store" }, normalizeRequestTimeout(options.requestTimeoutMs), options.signal);
+        if (!response.ok)
+            throw createApiError(response, body, response.headers.get("X-Request-Id"));
+        if (!isRecord(body) || body.schemaVersion !== "slug-availability-v1" || body.requestedSlug !== slug || !['AVAILABLE', 'UNAVAILABLE', 'INVALID'].includes(String(body.status)) || typeof body.normalizedSlug !== "string" || body.normalizedSlug.length > 48 || (body.status === "AVAILABLE" && body.normalizedSlug.length < 2) || typeof body.normalizationChanged !== "boolean" || typeof body.advisory !== "string" || (body.reason !== null && typeof body.reason !== "string") || typeof body.available !== "boolean" || body.available !== (body.status === "AVAILABLE") || body.reservationCreated !== false || typeof body.observedAt !== "string" || !Number.isFinite(Date.parse(body.observedAt))) {
+            throw new AgentelApiError("Slug availability was not confirmed. Do not infer availability or attempt registration as a probe.", { status: response.status, code: "SLUG_AVAILABILITY_UNCONFIRMED", details: body });
+        }
+        return body;
+    }
     static fromEnv(environment = readEnvironment(), options = {}) {
         const baseUrl = environment.AGENTEL_API_BASE_URL;
         const apiKey = environment.AGENTEL_API_KEY;

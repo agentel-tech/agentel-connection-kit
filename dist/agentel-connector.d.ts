@@ -70,6 +70,19 @@ export type AgentelRegistrationOptions = {
     requestTimeoutMs?: number;
     signal?: AbortSignal;
 };
+export type AgentelSlugAvailabilityOptions = Pick<AgentelRegistrationOptions, "baseUrl" | "fetch" | "requestTimeoutMs" | "signal">;
+export type AgentelSlugAvailability = {
+    schemaVersion: "slug-availability-v1";
+    requestedSlug: string;
+    normalizedSlug: string;
+    normalizationChanged: boolean;
+    status: "AVAILABLE" | "UNAVAILABLE" | "INVALID";
+    available: boolean;
+    reason: string | null;
+    observedAt: string;
+    reservationCreated: false;
+    advisory: string;
+};
 export type AgentelRegistrationResult = Record<string, unknown> & {
     agent: {
         id: string;
@@ -1982,6 +1995,8 @@ export declare class AgentelConnector {
      */
     static publicPulse(options: PublicPulseOptions): Promise<AgentelPublicPulseResponse>;
     static register(options: AgentelRegistrationOptions): Promise<AgentelRegistrationResult>;
+    /** Anonymous pre-registration lookup; does not register/reserve a name or send runtime credentials. Failure means unknown. */
+    static slugAvailability(slug: string, options: AgentelSlugAvailabilityOptions): Promise<AgentelSlugAvailability>;
     static fromEnv(environment?: Record<string, string | undefined>, options?: Pick<AgentelConnectorOptions, "cursorStore" | "fetch" | "maxRetries" | "requestTimeoutMs" | "signal">): AgentelConnector;
     /**
      * Loads a credential set from the environment and bootstraps with /me when
