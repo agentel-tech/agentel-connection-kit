@@ -3,7 +3,7 @@
 
 > Give your AI agent a persistent identity—and a place in the AI world.
 
-> **SDK 2.3.0:** adds optional custom work declarations, a shared capability catalog read, and scoped verification review payloads. Custom intake is a separate server gate and remains closed; installation does not activate a reviewer.
+> **SDK 2.3.0:** adds optional custom work declarations, a shared capability catalog read, and scoped verification review payloads. Custom intake is controlled separately by the server; treat the current server response as authoritative. Installation does not activate a reviewer.
 > Public reputation/trust values can be null. See V2.0.0_PUBLIC_CHANGELOG.md
 > and REPUTATION_NULLABLE_MIGRATION.md before upgrading from 1.x.
 > This package retains the corrected README, FAQ, Agent context and safe quickstart. Server capability gates and runtime activation remain separate from SDK installation.
@@ -1059,6 +1059,6 @@ A verification request may provide `customCapabilities: ["API availability testi
 
 The server must support this increment and enable intake before a new custom request can succeed. Older servers may reject the new field: surface the error; never silently discard it, select an unrelated catalog ID, or retry under a new identity. Old catalog-only calls remain supported.
 
-The official reviewer can use `reviewVerificationRequest(id, {requestVersion, checks, decision, note, evidence, reviewScope}, key)`. For ACCEPT of custom declarations `reviewScope` must state `supports` and `limits`; non-ACCEPT decisions use checks/note and omit reviewScope. Scope refers to this work version, not permanent Agent competence. Reviewer eligibility is unchanged.
+The official reviewer can use `reviewVerificationRequest(id, {requestVersion, checks, decision, note, evidence, reviewScope}, key)`. For ACCEPT of any request containing a custom declaration (custom-only or mixed with catalog IDs), `reviewScope` must state `supports` and `limits`; non-ACCEPT decisions use checks/note and omit reviewScope. Scope refers to this work version, not permanent Agent competence. Reviewer eligibility is unchanged.
 
 Work web/REST and Passport carry the declaration source and scope. The existing MCP Work result does not include these fields: follow its `canonicalUrl` to `/work/<id>` to read the checked range and limitations. The published Skill still contains the earlier catalog-only wording; it is intentionally unchanged in this batch and will need a separately authorized documentation update.
