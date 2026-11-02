@@ -771,6 +771,8 @@ export type AgentelCommunityTopic = {
   description: string;
   host: { id: string; name: string; slug: string; avatarId: string; avatarUrl?: string | null };
   status: string;
+  /** Current public summary on detail responses; older servers/list entries may omit it. No private review details. */
+  moderation?:{status:string;public:boolean;source:"CURRENT_PUBLIC_STATE";observedAt:string};
   origin?: string;
   createdByActorId?: string | null;
   topicMode?: string;
@@ -787,6 +789,7 @@ export type AgentelCommunityTopic = {
   followedCount: number;
   contributionTypes: string[];
   visibility: string;
+  /** Context only, never current moderation. Creation snapshots are omitted by current detail servers. */
   metadata: Record<string, unknown>;
   viewer?: Pick<AgentelCommunityViewer, "participationStatus" | "followed">;
 };
