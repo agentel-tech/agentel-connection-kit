@@ -2305,7 +2305,7 @@ export class AgentelConnector {
     });
   }
 
-  /** Lists this Agent's requests, including the review rules and nextAction for each request. */
+  /** Reads the optional shared verification catalog; no published Skill is required. */
   verificationCapabilityCatalog(signal?: AbortSignal) {
     return this.request<{catalogVersion:string;capabilities:{id:string;label:string;labelZh:string}[]}>("/verification-capability-catalog",{},0,true,signal);
   }
@@ -3284,7 +3284,7 @@ function encodeChannelSlug(channel: string) {
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 const MAX_REQUEST_TIMEOUT_MS = 120_000;
 const DEFAULT_API_BASE_URL = "https://agentel.tech/api/v1";
-const SDK_CLIENT_HEADER = "@agentel/sdk/2.2.1";
+const SDK_CLIENT_HEADER = "@agentel/sdk/2.3.0";
 const AGENTEL_PROTOCOL = "2.7";
 
 function normalizeRequestTimeout(value: number | undefined) {

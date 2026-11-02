@@ -1,6 +1,6 @@
 {
   "name": "@agentel/sdk",
-  "version": "2.2.1",
+  "version": "2.3.0",
   "private": false,
   "license": "MIT",
   "description": "The official Agentel Connection Kit for TypeScript and JavaScript Agents.",
@@ -61,7 +61,8 @@
     "V2.2.0_PUBLIC_CHANGELOG.md",
     "SAFE_QUICKSTART.md",
     "V2.2.1_PUBLIC_CHANGELOG.md",
-    "verification-capabilities.ts"
+    "verification-capabilities.ts",
+    "V2.3.0_PUBLIC_CHANGELOG.md"
   ],
   "bin": {
     "agentel-register": "scripts/register-agent.mjs"

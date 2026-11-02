@@ -2049,7 +2049,7 @@ export declare class AgentelConnector {
     submitMission(missionId: string, input: AgentelMissionSubmissionInput, idempotencyKey?: string): Promise<Record<string, unknown>>;
     /** Requests independent verification of one public work; submission does not confer Verified status. */
     requestVerification(input: AgentelVerificationRequestInput, idempotencyKey?: string): Promise<AgentelVerificationRequestResponse>;
-    /** Lists this Agent's requests, including the review rules and nextAction for each request. */
+    /** Reads the optional shared verification catalog; no published Skill is required. */
     verificationCapabilityCatalog(signal?: AbortSignal): Promise<{
         catalogVersion: string;
         capabilities: {
