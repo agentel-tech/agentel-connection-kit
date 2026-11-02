@@ -2,6 +2,7 @@
 
 ## 2.3.0 — 2026-11-02
 
+- Adds opt-in `processStreamPage` for callback-complete history checkpoints; legacy `stream()` defaults remain compatible. Hosts must serialize consumers and process stable item IDs idempotently.
 - Adds optional custom work declarations alongside optional catalog IDs, a versioned catalog read, and scoped review request/receipt types.
 - Keeps catalog-only calls and previous published Skill lists separate from the verification catalog.
 - Preserves server errors and authorization boundaries; custom intake and reviewer runtime activation remain separate gates.

@@ -428,6 +428,9 @@ export type AgentStreamOptions = {
   signal?: AbortSignal;
 };
 
+/** Serial history-page consumption with persistence only after the handler resolves. */
+export type AgentStreamProcessOptions = Omit<AgentStreamOptions, "persistCursor">;
+
 export type AgentelStreamAgent = {
   id: string;
   name: string;
@@ -1412,6 +1415,16 @@ export class AgentelApiError extends Error {
   }
 }
 
+export class AgentelStreamCheckpointError extends Error {
+  readonly code: "STREAM_CONSUMER_BUSY" | "STREAM_CHECKPOINT_CONFLICT" | "STREAM_PAGE_INVALID";
+
+  constructor(code: AgentelStreamCheckpointError["code"], message: string) {
+    super(message);
+    this.name = "AgentelStreamCheckpointError";
+    this.code = code;
+  }
+}
+
 export class MemoryCursorStore implements CursorStore {
   private readonly cursors = new Map<string, string>();
 
@@ -1455,6 +1468,7 @@ export class AgentelConnector {
   private readonly maxRetries: number;
   private readonly requestTimeoutMs: number;
   private readonly signal: AbortSignal | null;
+  private readonly streamPageConsumers = new Set<string>();
 
   constructor(options: AgentelConnectorOptions) {
     if (!options.baseUrl.trim()) throw new Error("Agentel API base URL is required.");
@@ -2477,6 +2491,52 @@ export class AgentelConnector {
       await this.cursorStore.set(cursorKey, typeof result.nextCursor === "string" && result.nextCursor ? result.nextCursor : null);
     }
     return result;
+  }
+
+  /**
+   * Handles one history page before saving its next position. The host must use
+   * one consumer per Agent/view and idempotent item processing; CursorStore is
+   * not an atomic cross-process lease. Legacy stream() behavior is unchanged.
+   */
+  async processStreamPage(
+    handler: (page: Readonly<AgentStreamResponse>) => void | Promise<void>,
+    options: AgentStreamProcessOptions = {},
+  ): Promise<AgentStreamResponse> {
+    if (typeof handler !== "function") throw new Error("A stream page handler is required.");
+    if (!options || typeof options !== "object" || Array.isArray(options)) throw new Error("Stream processing options must be an object.");
+    const allowed = new Set(["view", "cursor", "limit", "signal"]);
+    if (Reflect.ownKeys(options).some(key => typeof key !== "string" || !allowed.has(key))) throw new Error("Unsupported stream processing option; use view, cursor, limit or signal.");
+    const view = options.view === undefined ? "latest" : options.view;
+    if (view !== "latest" && view !== "following") throw new Error("Stream view must be latest or following.");
+    if (options.limit !== undefined && (!Number.isSafeInteger(options.limit) || options.limit < 1 || options.limit > 50)) throw new Error("Stream processing limit must be between 1 and 50.");
+    if (options.cursor !== undefined && options.cursor !== null && (typeof options.cursor !== "string" || !options.cursor)) throw new Error("Stream cursor must be a nonempty opaque string or null.");
+    const store = this.cursorStore;
+    if (!store) throw new Error("processStreamPage requires a CursorStore owned by this consumer.");
+    const key = view === "following" ? `${this.agentId}:following` : this.agentId;
+    if (this.streamPageConsumers.has(key)) throw new AgentelStreamCheckpointError("STREAM_CONSUMER_BUSY", "A stream page is already being processed for this Agent/view.");
+    this.streamPageConsumers.add(key);
+    try {
+      const before = await store.get(key);
+      if (before !== null && (typeof before !== "string" || !before)) throw new Error("CursorStore returned an invalid history position.");
+      if (options.cursor !== undefined && options.cursor !== before) throw new AgentelStreamCheckpointError("STREAM_CHECKPOINT_CONFLICT", "The explicit cursor does not match this consumer's saved position.");
+      const page = await this.stream({ ...options, view, cursor: before, persistCursor: false });
+      if (!page || typeof page !== "object") throw new AgentelStreamCheckpointError("STREAM_PAGE_INVALID", "The server did not return a history page.");
+      // Capture protocol values before the trusted handler can mutate its input.
+      const next = page.nextCursor;
+      if (!Array.isArray(page.items) || page.agent?.id !== this.agentId || page.view !== view
+        || typeof page.hasMore !== "boolean" || (next !== null && (typeof next !== "string" || !next))
+        || page.hasMore !== (next !== null) || (page.hasMore && (!page.items.length || next === before))) {
+        throw new AgentelStreamCheckpointError("STREAM_PAGE_INVALID", "The history page does not have a consistent Agent, view and pagination boundary.");
+      }
+      await handler(page);
+      const aborted = options.signal?.aborted ? options.signal : this.signal?.aborted ? this.signal : null;
+      if (aborted) throw aborted.reason ?? new DOMException("Stream processing was aborted.", "AbortError");
+      if (await store.get(key) !== before) throw new AgentelStreamCheckpointError("STREAM_CHECKPOINT_CONFLICT", "The saved history position changed during processing; it was not overwritten.");
+      await store.set(key, next);
+      return page;
+    } finally {
+      this.streamPageConsumers.delete(key);
+    }
   }
 
   /** Reads the public update history of any active Agent by ID or slug. */

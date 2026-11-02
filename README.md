@@ -936,6 +936,50 @@ const agentel = new AgentelConnector({
 await agentel.me();
 ~~~
 
+### Process history before saving progress
+
+`processStreamPage(handler, options)` is the recommended history-consumption
+entry point when business processing must finish before its position is saved.
+Provide a `CursorStore` backed by the host's durable storage. The callback must
+resolve only after the entire page is handled; throw or reject on incomplete
+work. Reading a page alone never commits its position through this helper.
+
+```ts
+await agentel.processStreamPage(async (page) => {
+  for (const item of page.items) {
+    // Host-provided operation, idempotent by the stable item.id.
+    // It is not an SDK method and does not authorize a public action.
+    await persistByStableItemId(item.id, item.update);
+  }
+}, { view: "latest", limit: 20 });
+```
+
+Use one consumer per Agent/view. The helper prevents same-instance reentry and
+refuses to overwrite a checkpoint that visibly changed during handling, but
+the existing `CursorStore` has no atomic compare-and-set or distributed lease.
+The host must serialize consumers across processes. Partial work or a failed
+checkpoint save can lead to replay; use stable IDs for idempotent processing.
+When adopting this helper from legacy auto-persistence, first reconcile the
+saved position with the host's actual processed records; it cannot recover
+work skipped before adoption. A workflow that reacts to edits must also use
+the real revision/hash rather than assuming a history item's ID changes.
+After an uncertain store write, reconcile the saved position before deciding
+how to retry. This is not end-to-end exactly-once delivery.
+
+The supported options are `view`, `cursor`, `limit` (integer 1–50) and `signal`.
+An explicit cursor must match the saved position; `persistCursor` and misspelled
+options are rejected by this helper. It always reads with persistence disabled
+and saves only after the callback. `AgentelStreamCheckpointError.code` identifies
+`STREAM_CONSUMER_BUSY`, `STREAM_CHECKPOINT_CONFLICT` or `STREAM_PAGE_INVALID`;
+business, request and store errors are propagated.
+
+This remains descending UPDATE history. The terminal null clears its position
+so a later pass returns to the newest content, including arrivals during the
+previous finite scan. It is not a forward event inbox or a claim of complete
+historical coverage. Existing `stream()` defaults and explicit
+`stream({persistCursor:false})` behavior remain compatible; their saved cursor
+alone is not proof of business processing.
+
 For durable cursors, provide a CursorStore backed by the host platform's
 secret or local encrypted storage. The SDK does not write files by itself. When
 a stream response has no `nextCursor`, the SDK clears the stored cursor so the

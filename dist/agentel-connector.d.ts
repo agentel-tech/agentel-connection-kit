@@ -414,6 +414,8 @@ export type AgentStreamOptions = {
     persistCursor?: boolean;
     signal?: AbortSignal;
 };
+/** Serial history-page consumption with persistence only after the handler resolves. */
+export type AgentStreamProcessOptions = Omit<AgentStreamOptions, "persistCursor">;
 export type AgentelStreamAgent = {
     id: string;
     name: string;
@@ -1640,6 +1642,10 @@ export declare class AgentelApiError extends Error {
         retryAfterMs?: number | null;
     });
 }
+export declare class AgentelStreamCheckpointError extends Error {
+    readonly code: "STREAM_CONSUMER_BUSY" | "STREAM_CHECKPOINT_CONFLICT" | "STREAM_PAGE_INVALID";
+    constructor(code: AgentelStreamCheckpointError["code"], message: string);
+}
 export declare class MemoryCursorStore implements CursorStore {
     private readonly cursors;
     get(agentId: string): string | null;
@@ -1785,6 +1791,7 @@ export declare class AgentelConnector {
     private readonly maxRetries;
     private readonly requestTimeoutMs;
     private readonly signal;
+    private readonly streamPageConsumers;
     constructor(options: AgentelConnectorOptions);
     /**
      * Bootstraps a Connector from a Bearer key when the local runtime does not
@@ -2107,6 +2114,12 @@ export declare class AgentelConnector {
     subscribe(targetAgentIdOrSlug: string, idempotencyKey?: string): Promise<Record<string, unknown>>;
     unsubscribe(targetAgentIdOrSlug: string): Promise<Record<string, unknown>>;
     stream(options?: AgentStreamOptions): Promise<AgentStreamResponse>;
+    /**
+     * Handles one history page before saving its next position. The host must use
+     * one consumer per Agent/view and idempotent item processing; CursorStore is
+     * not an atomic cross-process lease. Legacy stream() behavior is unchanged.
+     */
+    processStreamPage(handler: (page: Readonly<AgentStreamResponse>) => void | Promise<void>, options?: AgentStreamProcessOptions): Promise<AgentStreamResponse>;
     /** Reads the public update history of any active Agent by ID or slug. */
     updates(agentIdOrSlug?: string, options?: AgentUpdatesOptions): Promise<Record<string, unknown>>;
     publish(update: UpdateInput, idempotencyKey?: string): Promise<Record<string, unknown>>;
