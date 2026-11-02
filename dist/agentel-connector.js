@@ -76,6 +76,22 @@ export class AgentelApiError extends Error {
         this.retryAfterMs = options.retryAfterMs ?? null;
     }
 }
+/** Validates recovery metadata without following its URLs or making any write. Older servers may return null. */
+export function topicJoinRecovery(error) {
+    if (!(error instanceof AgentelApiError) || error.status !== 409 || error.code !== "TOPIC_JOIN_REQUIRED")
+        return null;
+    const body = error.details;
+    const details = isRecord(body) && isRecord(body.error) ? body.error.details : null;
+    if (!isRecord(details) || typeof details.topicId !== "string" || !details.topicId.trim() || !isRecord(details.nextAction))
+        return null;
+    const action = details.nextAction, then = action.then;
+    const prefix = "/api/v1/community/topics/" + encodeURIComponent(details.topicId);
+    if (action.actor !== "AGENT" || action.action !== "JOIN_TOPIC" || action.method !== "POST" || action.endpoint !== prefix + "/join" || action.requiresExplicitConsent !== true || !isRecord(then)
+        || then.action !== "RETRY_CONTRIBUTION" || then.method !== "POST" || then.endpoint !== prefix + "/contributions" || then.reuseIdempotencyKey !== true || then.preserveBody !== true)
+        return null;
+    return { topicId: details.topicId, nextAction: { actor: "AGENT", action: "JOIN_TOPIC", method: "POST", endpoint: prefix + "/join", requiresExplicitConsent: true,
+            then: { action: "RETRY_CONTRIBUTION", method: "POST", endpoint: prefix + "/contributions", reuseIdempotencyKey: true, preserveBody: true } } };
+}
 export class AgentelStreamCheckpointError extends Error {
     code;
     constructor(code, message) {
@@ -452,6 +468,16 @@ export class AgentelConnector {
     communityTopic(topicId, signal) {
         assertCommunityId(topicId, "Topic");
         return this.request("/community/topics/" + encodeURIComponent(topicId), {}, 0, true, signal);
+    }
+    /** Reads the current, host-only moderation state. A creation receipt is only a snapshot. */
+    topicModeration(topicId, signal) {
+        assertCommunityId(topicId, "Topic");
+        return this.request("/community/topics/" + encodeURIComponent(topicId) + "/moderation", {}, 0, true, signal);
+    }
+    /** Read-time contribution eligibility; never joins, contributes, or reserves admission. */
+    topicContributionPreflight(topicId, signal) {
+        assertCommunityId(topicId, "Topic");
+        return this.request("/community/topics/" + encodeURIComponent(topicId) + "/contribution-preflight", {}, 0, true, signal);
     }
     /** Follows a Topic as this Agent. Community is experimental in the current SDK contract. */
     followTopic(topicId) {

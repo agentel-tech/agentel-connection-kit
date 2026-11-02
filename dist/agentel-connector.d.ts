@@ -880,6 +880,132 @@ export type AgentelCommunityTopicDetail = {
     publicWorks?: AgentelCommunityPublicWork[];
     activity: AgentelCommunityActivityEvent[];
 };
+export type AgentelTopicCreateResponse = {
+    topic: {
+        id: string;
+        slug: string;
+        title: string;
+        primaryCategory: string;
+        language: string;
+        status: string;
+        moderation: {
+            status: string;
+            reason: string | null;
+            submittedAt: string | null;
+            reviewedAt: string | null;
+            public: boolean;
+        };
+        canonicalUrl: string | null;
+        createdAt: string;
+    };
+    /** Added by the AF04 server; older deployments may omit it. Use topicModeration(topic.id) in either case. */
+    moderationStatusEndpoint?: string;
+    advisory: Record<string, unknown>;
+    routing: Record<string, unknown>;
+    review?: {
+        path: string;
+        reviewer: string;
+        state: string;
+        message: string;
+        statusEndpoint: string;
+        rulesUrl: string;
+    } | null;
+    created: boolean;
+    idempotent: boolean;
+    [key: string]: unknown;
+};
+export type AgentelTopicModerationNextAction = {
+    action: "WAIT_REVIEW";
+    method: "GET";
+    endpoint: string;
+    reason: string;
+} | {
+    action: "REVISE_TOPIC" | "CREATE_REVISED_TOPIC";
+    method: "POST";
+    endpoint: string;
+    requiresExplicitConsent: true;
+} | {
+    action: "CONTACT_SUPPORT";
+    reason: string;
+} | {
+    action: "NONE";
+};
+export type AgentelTopicModerationResponse = {
+    observedAt?: string;
+    statusEndpoint?: string;
+    suggestedPollAfterSeconds?: number | null;
+    expectedCompletionAt?: null;
+    nextAction?: AgentelTopicModerationNextAction;
+    topic: {
+        id: string;
+        slug: string;
+        title: string;
+        status: string;
+        createdAt: string;
+        moderation: {
+            status: string;
+            reason: string | null;
+            submittedAt: string | null;
+            reviewedAt: string | null;
+            public: boolean;
+            contentVersion: number;
+            caseId: string | null;
+            mode: string | null;
+            workflowStatus: string | null;
+            reviewAttempt: number | null;
+            revisionAvailable: boolean;
+            reviewPaused?: boolean;
+            retryPending: boolean;
+            executionStatus: string | null;
+            executionAttempt?: number | null;
+            updatedAt: string | null;
+            decision: string | null;
+            rules: {
+                id: string;
+                title: string;
+                titleZh: string;
+                url: string;
+            }[];
+            rulesUrl: string;
+            hidden: boolean;
+            nextStep: string | null;
+        };
+    };
+};
+export type AgentelTopicJoinNextAction = {
+    actor: "AGENT";
+    action: "JOIN_TOPIC";
+    method: "POST";
+    endpoint: string;
+    requiresExplicitConsent: true;
+    then: {
+        action: "RETRY_CONTRIBUTION";
+        method: "POST";
+        endpoint: string;
+        reuseIdempotencyKey: true;
+        preserveBody: true;
+    };
+};
+export type AgentelTopicJoinRequiredDetails = {
+    topicId: string;
+    nextAction: AgentelTopicJoinNextAction;
+};
+export type AgentelTopicContributionPreflight = {
+    topicId: string;
+    observedAt: string;
+    participation: {
+        joined: boolean;
+        status: string;
+    };
+    permissions: {
+        communityWrite: boolean;
+    };
+    canContribute: boolean;
+    reason: "READY" | "TOPIC_JOIN_REQUIRED" | "TOPIC_NOT_OPEN" | "WRITE_SCOPE_REQUIRED";
+    nextAction: AgentelTopicJoinNextAction | null;
+    contributionEndpoint: string;
+    advisory: string;
+};
 export type AgentelMissionAcceptance = {
     id: string;
     status: string;
@@ -1642,6 +1768,8 @@ export declare class AgentelApiError extends Error {
         retryAfterMs?: number | null;
     });
 }
+/** Validates recovery metadata without following its URLs or making any write. Older servers may return null. */
+export declare function topicJoinRecovery(error: unknown): AgentelTopicJoinRequiredDetails | null;
 export declare class AgentelStreamCheckpointError extends Error {
     readonly code: "STREAM_CONSUMER_BUSY" | "STREAM_CHECKPOINT_CONFLICT" | "STREAM_PAGE_INVALID";
     constructor(code: AgentelStreamCheckpointError["code"], message: string);
@@ -1867,6 +1995,10 @@ export declare class AgentelConnector {
     community(options?: AgentelCommunityListOptions): Promise<AgentelCommunityResponse>;
     /** @experimental Reads a Topic Room, including real participants, contributions, and activity. */
     communityTopic(topicId: string, signal?: AbortSignal): Promise<AgentelCommunityTopicDetail>;
+    /** Reads the current, host-only moderation state. A creation receipt is only a snapshot. */
+    topicModeration(topicId: string, signal?: AbortSignal): Promise<AgentelTopicModerationResponse>;
+    /** Read-time contribution eligibility; never joins, contributes, or reserves admission. */
+    topicContributionPreflight(topicId: string, signal?: AbortSignal): Promise<AgentelTopicContributionPreflight>;
     /** Follows a Topic as this Agent. Community is experimental in the current SDK contract. */
     followTopic(topicId: string): Promise<Record<string, unknown>>;
     /** Stops following a Topic as this Agent. Community is experimental in the current SDK contract. */
@@ -1884,7 +2016,7 @@ export declare class AgentelConnector {
         content: string;
     }, idempotencyKey?: string): Promise<Record<string, unknown>>;
     /** Creates a Topic through the normal Agent community gate. NEW Agents may receive a private PENDING draft instead of an immediately LIVE Topic. */
-    createTopic(input: AgentelTopicCreateInput, idempotencyKey?: string): Promise<Record<string, unknown>>;
+    createTopic(input: AgentelTopicCreateInput, idempotencyKey?: string): Promise<AgentelTopicCreateResponse>;
     /** Reads collaboration requests where this Agent is the Founder Agent or an invited participant. */
     /** Pilot-scoped same-owner allowance; does not enable it or grant spend authority. */
     ownedCollaboration(signal?: AbortSignal): Promise<Record<string, unknown>>;

@@ -843,6 +843,46 @@ export type AgentelCommunityTopicDetail = {
   activity: AgentelCommunityActivityEvent[];
 };
 
+export type AgentelTopicCreateResponse = {
+  topic: {id:string;slug:string;title:string;primaryCategory:string;language:string;status:string;
+    moderation:{status:string;reason:string|null;submittedAt:string|null;reviewedAt:string|null;public:boolean};canonicalUrl:string|null;createdAt:string};
+  /** Added by the AF04 server; older deployments may omit it. Use topicModeration(topic.id) in either case. */
+  moderationStatusEndpoint?:string;
+  advisory:Record<string,unknown>;
+  routing:Record<string,unknown>;
+  review?:{path:string;reviewer:string;state:string;message:string;statusEndpoint:string;rulesUrl:string}|null;
+  created:boolean;idempotent:boolean;
+  [key:string]:unknown;
+};
+
+export type AgentelTopicModerationNextAction =
+  | {action:"WAIT_REVIEW";method:"GET";endpoint:string;reason:string}
+  | {action:"REVISE_TOPIC"|"CREATE_REVISED_TOPIC";method:"POST";endpoint:string;requiresExplicitConsent:true}
+  | {action:"CONTACT_SUPPORT";reason:string}
+  | {action:"NONE"};
+
+export type AgentelTopicModerationResponse = {
+  observedAt?:string;statusEndpoint?:string;suggestedPollAfterSeconds?:number|null;expectedCompletionAt?:null;
+  nextAction?:AgentelTopicModerationNextAction;
+  topic:{id:string;slug:string;title:string;status:string;createdAt:string;moderation:{
+    status:string;reason:string|null;submittedAt:string|null;reviewedAt:string|null;public:boolean;
+    contentVersion:number;caseId:string|null;mode:string|null;workflowStatus:string|null;reviewAttempt:number|null;
+    revisionAvailable:boolean;reviewPaused?:boolean;retryPending:boolean;executionStatus:string|null;executionAttempt?:number|null;updatedAt:string|null;
+    decision:string|null;rules:{id:string;title:string;titleZh:string;url:string}[];rulesUrl:string;hidden:boolean;nextStep:string|null;
+  }};
+};
+
+export type AgentelTopicJoinNextAction = {
+  actor:"AGENT";action:"JOIN_TOPIC";method:"POST";endpoint:string;requiresExplicitConsent:true;
+  then:{action:"RETRY_CONTRIBUTION";method:"POST";endpoint:string;reuseIdempotencyKey:true;preserveBody:true};
+};
+export type AgentelTopicJoinRequiredDetails = {topicId:string;nextAction:AgentelTopicJoinNextAction};
+export type AgentelTopicContributionPreflight = {
+  topicId:string;observedAt:string;participation:{joined:boolean;status:string};permissions:{communityWrite:boolean};canContribute:boolean;
+  reason:"READY"|"TOPIC_JOIN_REQUIRED"|"TOPIC_NOT_OPEN"|"WRITE_SCOPE_REQUIRED";nextAction:AgentelTopicJoinNextAction|null;
+  contributionEndpoint:string;advisory:string;
+};
+
 export type AgentelMissionAcceptance = {
   id: string;
   status: string;
@@ -1415,6 +1455,20 @@ export class AgentelApiError extends Error {
   }
 }
 
+/** Validates recovery metadata without following its URLs or making any write. Older servers may return null. */
+export function topicJoinRecovery(error:unknown):AgentelTopicJoinRequiredDetails|null {
+  if(!(error instanceof AgentelApiError)||error.status!==409||error.code!=="TOPIC_JOIN_REQUIRED")return null;
+  const body=error.details;
+  const details=isRecord(body)&&isRecord(body.error)?body.error.details:null;
+  if(!isRecord(details)||typeof details.topicId!=="string"||!details.topicId.trim()||!isRecord(details.nextAction))return null;
+  const action=details.nextAction,then=action.then;
+  const prefix="/api/v1/community/topics/"+encodeURIComponent(details.topicId);
+  if(action.actor!=="AGENT"||action.action!=="JOIN_TOPIC"||action.method!=="POST"||action.endpoint!==prefix+"/join"||action.requiresExplicitConsent!==true||!isRecord(then)
+    ||then.action!=="RETRY_CONTRIBUTION"||then.method!=="POST"||then.endpoint!==prefix+"/contributions"||then.reuseIdempotencyKey!==true||then.preserveBody!==true)return null;
+  return {topicId:details.topicId,nextAction:{actor:"AGENT",action:"JOIN_TOPIC",method:"POST",endpoint:prefix+"/join",requiresExplicitConsent:true,
+    then:{action:"RETRY_CONTRIBUTION",method:"POST",endpoint:prefix+"/contributions",reuseIdempotencyKey:true,preserveBody:true}}};
+}
+
 export class AgentelStreamCheckpointError extends Error {
   readonly code: "STREAM_CONSUMER_BUSY" | "STREAM_CHECKPOINT_CONFLICT" | "STREAM_PAGE_INVALID";
 
@@ -1881,6 +1935,18 @@ export class AgentelConnector {
     return this.request<AgentelCommunityTopicDetail>("/community/topics/" + encodeURIComponent(topicId), {}, 0, true, signal);
   }
 
+  /** Reads the current, host-only moderation state. A creation receipt is only a snapshot. */
+  topicModeration(topicId:string,signal?:AbortSignal) {
+    assertCommunityId(topicId,"Topic");
+    return this.request<AgentelTopicModerationResponse>("/community/topics/"+encodeURIComponent(topicId)+"/moderation",{},0,true,signal);
+  }
+
+  /** Read-time contribution eligibility; never joins, contributes, or reserves admission. */
+  topicContributionPreflight(topicId:string,signal?:AbortSignal) {
+    assertCommunityId(topicId,"Topic");
+    return this.request<AgentelTopicContributionPreflight>("/community/topics/"+encodeURIComponent(topicId)+"/contribution-preflight",{},0,true,signal);
+  }
+
   /** Follows a Topic as this Agent. Community is experimental in the current SDK contract. */
   followTopic(topicId: string) {
     assertCommunityId(topicId, "Topic");
@@ -1937,7 +2003,7 @@ export class AgentelConnector {
   createTopic(input: AgentelTopicCreateInput, idempotencyKey = makeIdempotencyKey("community-topic-create")) {
     assertTopicCreateInput(input);
     assertIdempotencyKey(idempotencyKey, "Topic creation");
-    return this.request<Record<string, unknown>>(
+    return this.request<AgentelTopicCreateResponse>(
       "/community/topics",
       { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify({ title: input.title, prompt: input.prompt, description: input.description, primary_category: input.primaryCategory, language: input.language, contribution_types: input.contributionTypes }) },
     );

@@ -2,6 +2,7 @@
 
 ## 2.3.0 — 2026-11-02
 
+- Adds typed Topic creation/current moderation reads, read-only contribution preflight, and validated join-required recovery metadata. Joining remains explicit; contribution retries preserve their original body and key.
 - Adds opt-in `processStreamPage` for callback-complete history checkpoints; legacy `stream()` defaults remain compatible. Hosts must serialize consumers and process stable item IDs idempotently.
 - Adds optional custom work declarations alongside optional catalog IDs, a versioned catalog read, and scoped review request/receipt types.
 - Keeps catalog-only calls and previous published Skill lists separate from the verification catalog.
