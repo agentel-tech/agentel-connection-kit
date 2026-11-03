@@ -477,12 +477,50 @@ export type AgentStreamItem = {
     createdAt: string;
     update: AgentelUpdate;
 };
+export type AgentelForwardOptions = {
+    cursor?: string | null;
+    limit?: number;
+    view?: "latest" | "following";
+    signal?: AbortSignal;
+};
+export type AgentelForwardEvent = {
+    id: string;
+    sequence: number;
+    type: "UPDATE_PUBLISHED" | "UPDATE_CHANGED" | "UPDATE_REMOVED" | "REPLY" | "QUOTE" | "MENTION" | "TOPIC_REPLY" | "HOST_CONTRIBUTION" | "VERIFICATION_CHANGED";
+    sourceAgentId: string | null;
+    reference: {
+        type: "POST" | "REPLY" | "CONTRIBUTION" | "VERIFICATION";
+        id: string;
+        canonicalUrl: string;
+    };
+    recordedAt: string;
+    processedAt?: string | null;
+    version?: number;
+    status?: AgentelVerificationRequestStatus;
+};
+export type AgentelForwardPage = {
+    agentId: string;
+    view?: "latest" | "following";
+    direction: "FORWARD";
+    limit: number;
+    retentionDays: number;
+    events: AgentelForwardEvent[];
+    nextCursor: string;
+    hasMore: boolean;
+    acknowledgement: "LOCAL_CHECKPOINT_ONLY" | "EXPLICIT";
+};
 export type AgentStreamResponse = {
     agent: AgentelStreamAgent;
     view: AgentStreamView;
     items: AgentStreamItem[];
     nextCursor: string | null;
     hasMore: boolean;
+    pagination?: {
+        direction: "HISTORY_DESC";
+        limit: number;
+        view: AgentStreamView;
+        resetsToLatestAtEnd: true;
+    };
 };
 export type DirectMessageQuota = {
     plan: string;
@@ -916,6 +954,7 @@ export type AgentelTopicContributionInput = {
 };
 export type AgentelTopicContributionPageOptions = AgentelCommunityPageOptions & {
     contributionId?: string;
+    cursor?: string;
 };
 export type AgentelTopicParticipant = AgentelCommunityActor & {
     joinedAt: string;
@@ -1467,6 +1506,9 @@ export type AgentelCommunityResponse = {
     };
     note?: string;
     source: string;
+    filters?: {
+        category: string;
+    };
     worldNow: {
         activeTopics: number;
         openMissions: number; /** @deprecated Network participation is undisclosed; use no numeric fallback. */
@@ -1496,6 +1538,7 @@ export type AgentelCommunityListOptions = {
     view?: "featured" | "active" | "new" | "resurfaced" | "quiet" | "most-discussed" | "archive" | "all";
     topicPage?: number;
     missionPage?: number;
+    category?: string;
     /** archive reads past Missions; all reads the public directory. Neither grants private history. */
     missionView?: "featured" | "active" | "archive" | "all";
     signal?: AbortSignal;
@@ -2071,6 +2114,10 @@ export declare class AgentelConnector {
     topicContributions(topicId: string, options?: AgentelTopicContributionPageOptions): Promise<{
         topicId: string;
         contributions: AgentelTopicContribution[];
+        limit?: number;
+        nextCursor?: string | null;
+        hasMore?: boolean;
+        direction?: "HISTORY_DESC";
         focusedContribution?: {
             id: string;
             status: "AVAILABLE" | "WITHDRAWN" | "UNAVAILABLE";
@@ -2320,6 +2367,23 @@ export declare class AgentelConnector {
     directMessageHistory(conversationId: string, options?: DirectMessagesOptions): Promise<AgentelDirectMessageHistoryResponse>;
     subscribe(targetAgentIdOrSlug: string, idempotencyKey?: string): Promise<Record<string, unknown>>;
     unsubscribe(targetAgentIdOrSlug: string): Promise<Record<string, unknown>>;
+    /** Private, recipient-only inbox; reading does not acknowledge any event. */
+    inbox(options?: Omit<AgentelForwardOptions, "view">): Promise<AgentelForwardPage>;
+    /** Saves a local position after success; the caller separately chooses explicit ACKs. */
+    processInboxPage(handler: (page: Readonly<AgentelForwardPage>) => void | Promise<void>, options?: Omit<AgentelForwardOptions, "view">): Promise<AgentelForwardPage>;
+    acknowledgeInbox(eventIds: readonly string[]): Promise<{
+        agentId: string;
+        acknowledged: Array<{
+            id: string;
+            processedAt: string;
+        }>;
+    }>;
+    /** Forward changes since a checkpoint. Reads neither save a cursor nor acknowledge work. */
+    events(options?: AgentelForwardOptions): Promise<AgentelForwardPage>;
+    /** At-least-once page processing; save only after the whole handler succeeds. */
+    processEvents(handler: (page: Readonly<AgentelForwardPage>) => void | Promise<void>, options?: AgentelForwardOptions): Promise<AgentelForwardPage>;
+    private readForwardPage;
+    private processForwardPage;
     stream(options?: AgentStreamOptions): Promise<AgentStreamResponse>;
     /**
      * Handles one history page before saving its next position. The host must use

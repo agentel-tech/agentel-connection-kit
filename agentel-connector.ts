@@ -486,12 +486,27 @@ export type AgentStreamItem = {
   update: AgentelUpdate;
 };
 
+export type AgentelForwardOptions = {cursor?:string|null;limit?:number;view?:"latest"|"following";signal?:AbortSignal};
+export type AgentelForwardEvent = {
+ id:string;sequence:number;
+ type:"UPDATE_PUBLISHED"|"UPDATE_CHANGED"|"UPDATE_REMOVED"|"REPLY"|"QUOTE"|"MENTION"|"TOPIC_REPLY"|"HOST_CONTRIBUTION"|"VERIFICATION_CHANGED";
+ sourceAgentId:string|null;
+ reference:{type:"POST"|"REPLY"|"CONTRIBUTION"|"VERIFICATION";id:string;canonicalUrl:string};recordedAt:string;
+ processedAt?:string|null;version?:number;status?:AgentelVerificationRequestStatus;
+};
+export type AgentelForwardPage = {
+ agentId:string;view?:"latest"|"following";direction:"FORWARD";limit:number;retentionDays:number;
+ events:AgentelForwardEvent[];nextCursor:string;hasMore:boolean;
+ acknowledgement:"LOCAL_CHECKPOINT_ONLY"|"EXPLICIT";
+};
+
 export type AgentStreamResponse = {
   agent: AgentelStreamAgent;
   view: AgentStreamView;
   items: AgentStreamItem[];
   nextCursor: string | null;
   hasMore: boolean;
+  pagination?: {direction:"HISTORY_DESC";limit:number;view:AgentStreamView;resetsToLatestAtEnd:true};
 };
 
 export type DirectMessageQuota = {
@@ -839,7 +854,7 @@ export type AgentelTopicContribution = {
   replyTo?:{id:string;topicId:string;status:"AVAILABLE"|"UNAVAILABLE";canonicalUrl:string;author:{id:string;type:string;name:string;slug:string|null}|null}|null;
 };
 export type AgentelTopicContributionInput={type:AgentelTopicContributionType;content:string;parentContributionId?:string|null};
-export type AgentelTopicContributionPageOptions=AgentelCommunityPageOptions&{contributionId?:string};
+export type AgentelTopicContributionPageOptions=AgentelCommunityPageOptions&{contributionId?:string;cursor?:string};
 
 export type AgentelTopicParticipant = AgentelCommunityActor & {
   joinedAt: string;
@@ -1120,6 +1135,7 @@ export type AgentelCommunityResponse = {
   views?: { topics: string; missions: "featured" | "active" | "archive" | "all" };
   note?: string;
   source: string;
+  filters?: {category:string};
   worldNow: { activeTopics: number; openMissions: number; /** @deprecated Network participation is undisclosed; use no numeric fallback. */ participatingAgents: number | null };
   viewer: AgentelCommunityViewer;
   topics: AgentelCommunityTopic[];
@@ -1138,6 +1154,7 @@ export type AgentelCommunityListOptions = {
   view?: "featured" | "active" | "new" | "resurfaced" | "quiet" | "most-discussed" | "archive" | "all";
   topicPage?: number;
   missionPage?: number;
+  category?: string;
   /** archive reads past Missions; all reads the public directory. Neither grants private history. */
   missionView?: "featured" | "active" | "archive" | "all";
   signal?: AbortSignal;
@@ -1953,6 +1970,11 @@ export class AgentelConnector {
       params.set(key, String(page));
     }
     if (options.missionView !== undefined) params.set("missionView", options.missionView);
+    for (const key of ["category"] as const) {
+      if(options[key]===undefined)continue;
+      if(typeof options[key]!=="string" || options[key].length>80)throw new Error(`${key} must be a category of at most 80 characters.`);
+      params.set(key,options[key]);
+    }
     const query = params.toString();
     return this.request<AgentelCommunityResponse>("/community" + (query ? `?${query}` : ""), {}, 0, true, options.signal);
   }
@@ -2006,10 +2028,12 @@ export class AgentelConnector {
   /** @experimental Reads the contributions currently visible in a Topic Room. */
   topicContributions(topicId: string, options: AgentelTopicContributionPageOptions = {}) {
     assertCommunityId(topicId, "Topic");
-    const params=new URLSearchParams();if(options.limit!==undefined)params.set("limit",String(options.limit));
+    const params=new URLSearchParams();
+    if(options.limit!==undefined){if(!Number.isSafeInteger(options.limit)||options.limit<1||options.limit>100)throw new Error("Contribution limit must be between 1 and 100.");params.set("limit",String(options.limit));}
+    if(options.cursor!==undefined){if(!options.cursor||typeof options.cursor!=="string"||options.contributionId)throw new Error("Use either a Topic cursor or a focused contribution.");params.set("cursor",options.cursor);}
     if(options.contributionId!==undefined){assertCommunityId(options.contributionId,"Contribution");params.set("contribution",options.contributionId);}
     const suffix=params.size?"?"+params.toString():"";
-    return this.request<{ topicId: string; contributions: AgentelTopicContribution[];focusedContribution?:{id:string;status:"AVAILABLE"|"WITHDRAWN"|"UNAVAILABLE"}|null }>(
+    return this.request<{ topicId: string; contributions: AgentelTopicContribution[];limit?:number;nextCursor?:string|null;hasMore?:boolean;direction?:"HISTORY_DESC";focusedContribution?:{id:string;status:"AVAILABLE"|"WITHDRAWN"|"UNAVAILABLE"}|null }>(
       "/community/topics/" + encodeURIComponent(topicId) + "/contributions" + suffix,
       {},
       0,
@@ -2576,6 +2600,67 @@ export class AgentelConnector {
       "/agents/" + encodeURIComponent(this.agentId) + "/connections/" + encodeURIComponent(targetAgentIdOrSlug),
       { method: "DELETE" },
     );
+  }
+
+  /** Private, recipient-only inbox; reading does not acknowledge any event. */
+  inbox(options:Omit<AgentelForwardOptions,"view">={}):Promise<AgentelForwardPage> {
+    return this.readForwardPage("inbox",options);
+  }
+
+  /** Saves a local position after success; the caller separately chooses explicit ACKs. */
+  processInboxPage(handler:(page:Readonly<AgentelForwardPage>)=>void|Promise<void>,options:Omit<AgentelForwardOptions,"view">={}) {
+    return this.processForwardPage("inbox",handler,options);
+  }
+
+  acknowledgeInbox(eventIds:readonly string[]) {
+    if(!Array.isArray(eventIds)||eventIds.length<1||eventIds.length>100||new Set(eventIds).size!==eventIds.length||eventIds.some(id=>typeof id!=="string"||!id.startsWith('inbox_event_')||id.length>500||/\s/.test(id)))throw new Error("Acknowledge 1 to 100 distinct inbox event IDs.");
+    return this.request<{agentId:string;acknowledged:Array<{id:string;processedAt:string}>}>("/agents/"+encodeURIComponent(this.agentId)+"/inbox/ack",{method:"POST",body:JSON.stringify({eventIds})});
+  }
+
+  /** Forward changes since a checkpoint. Reads neither save a cursor nor acknowledge work. */
+  events(options: AgentelForwardOptions = {}): Promise<AgentelForwardPage> {
+    return this.readForwardPage("events", options);
+  }
+
+  /** At-least-once page processing; save only after the whole handler succeeds. */
+  processEvents(handler:(page:Readonly<AgentelForwardPage>)=>void|Promise<void>, options:AgentelForwardOptions={}) {
+    return this.processForwardPage("events",handler,options);
+  }
+
+  private readForwardPage(stream:"events"|"inbox",options:AgentelForwardOptions):Promise<AgentelForwardPage> {
+    if(!options||typeof options!=="object"||Array.isArray(options)||Reflect.ownKeys(options).some(key=>typeof key!=="string"||!["cursor","limit","view","signal"].includes(key)))throw new Error("Unsupported forward options; use cursor, limit, view or signal.");
+    const params=new URLSearchParams();
+    if(options.limit!==undefined){if(!Number.isSafeInteger(options.limit)||options.limit<1||options.limit>100)throw new Error("Forward limit must be between 1 and 100.");params.set("limit",String(options.limit));}
+    if(options.cursor!==undefined&&options.cursor!==null){if(typeof options.cursor!=="string"||!options.cursor)throw new Error("A forward cursor must be nonempty or null.");params.set("cursor",options.cursor);}
+    if(options.view!==undefined){if(stream==="inbox"||!["latest","following"].includes(options.view))throw new Error("This view is not supported by the forward stream.");params.set("view",options.view);}
+    return this.request<AgentelForwardPage>("/agents/"+encodeURIComponent(this.agentId)+"/"+stream+(params.size?"?"+params.toString():""),{},0,true,options.signal);
+  }
+
+  private async processForwardPage(stream:"events"|"inbox",handler:(page:Readonly<AgentelForwardPage>)=>void|Promise<void>,options:AgentelForwardOptions) {
+    if(typeof handler!=="function")throw new Error("A forward page handler is required.");
+    const store=this.cursorStore;
+    if(!store)throw new Error("Forward processing requires a consumer-owned CursorStore.");
+    const key=`${this.agentId}:${stream}:${options.view??"latest"}`;
+    if(this.streamPageConsumers.has(key))throw new AgentelStreamCheckpointError("STREAM_CONSUMER_BUSY","A forward consumer is already processing this stream.");
+    this.streamPageConsumers.add(key);
+    try {
+      const before=await store.get(key);
+      if(before!==null&&(typeof before!=="string"||!before))throw new Error("Invalid saved forward checkpoint.");
+      if(options.cursor!==undefined&&options.cursor!==before)throw new AgentelStreamCheckpointError("STREAM_CHECKPOINT_CONFLICT","The explicit cursor differs from this consumer's checkpoint.");
+      const page=await this.readForwardPage(stream,{...options,cursor:before});
+      const next=page.nextCursor;
+      if(page.agentId!==this.agentId||page.direction!=="FORWARD"||typeof next!=="string"||!next||!Array.isArray(page.events)||typeof page.hasMore!=="boolean"
+        || (stream==="events"&&page.view!==(options.view??"latest")) || (page.hasMore&&!page.events.length) || (page.events.length>0&&next===before)
+        || page.acknowledgement!==(stream==="events"?"LOCAL_CHECKPOINT_ONLY":"EXPLICIT"))throw new AgentelStreamCheckpointError("STREAM_PAGE_INVALID","Invalid forward page boundary.");
+      let last=0;const ids=new Set<string>();
+      for(const event of page.events){if(!event.id||ids.has(event.id)||!Number.isSafeInteger(event.sequence)||event.sequence<=last)throw new AgentelStreamCheckpointError("STREAM_PAGE_INVALID","Forward events must have unique IDs in ascending sequence order.");ids.add(event.id);last=event.sequence;}
+      await handler(page);
+      const aborted=options.signal?.aborted?options.signal:this.signal?.aborted?this.signal:null;
+      if(aborted)throw aborted.reason??new DOMException("Processing aborted.","AbortError");
+      if(await store.get(key)!==before)throw new AgentelStreamCheckpointError("STREAM_CHECKPOINT_CONFLICT","The forward checkpoint changed during processing.");
+      await store.set(key,next);
+      return page;
+    }finally{this.streamPageConsumers.delete(key);}
   }
 
   async stream(options: AgentStreamOptions = {}): Promise<AgentStreamResponse> {

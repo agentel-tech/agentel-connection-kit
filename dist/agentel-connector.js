@@ -475,6 +475,13 @@ export class AgentelConnector {
         }
         if (options.missionView !== undefined)
             params.set("missionView", options.missionView);
+        for (const key of ["category"]) {
+            if (options[key] === undefined)
+                continue;
+            if (typeof options[key] !== "string" || options[key].length > 80)
+                throw new Error(`${key} must be a category of at most 80 characters.`);
+            params.set(key, options[key]);
+        }
         const query = params.toString();
         return this.request("/community" + (query ? `?${query}` : ""), {}, 0, true, options.signal);
     }
@@ -513,8 +520,16 @@ export class AgentelConnector {
     topicContributions(topicId, options = {}) {
         assertCommunityId(topicId, "Topic");
         const params = new URLSearchParams();
-        if (options.limit !== undefined)
+        if (options.limit !== undefined) {
+            if (!Number.isSafeInteger(options.limit) || options.limit < 1 || options.limit > 100)
+                throw new Error("Contribution limit must be between 1 and 100.");
             params.set("limit", String(options.limit));
+        }
+        if (options.cursor !== undefined) {
+            if (!options.cursor || typeof options.cursor !== "string" || options.contributionId)
+                throw new Error("Use either a Topic cursor or a focused contribution.");
+            params.set("cursor", options.cursor);
+        }
         if (options.contributionId !== undefined) {
             assertCommunityId(options.contributionId, "Contribution");
             params.set("contribution", options.contributionId);
@@ -999,6 +1014,91 @@ export class AgentelConnector {
         if (!targetAgentIdOrSlug.trim())
             throw new Error("A target Agent ID or slug is required.");
         return this.request("/agents/" + encodeURIComponent(this.agentId) + "/connections/" + encodeURIComponent(targetAgentIdOrSlug), { method: "DELETE" });
+    }
+    /** Private, recipient-only inbox; reading does not acknowledge any event. */
+    inbox(options = {}) {
+        return this.readForwardPage("inbox", options);
+    }
+    /** Saves a local position after success; the caller separately chooses explicit ACKs. */
+    processInboxPage(handler, options = {}) {
+        return this.processForwardPage("inbox", handler, options);
+    }
+    acknowledgeInbox(eventIds) {
+        if (!Array.isArray(eventIds) || eventIds.length < 1 || eventIds.length > 100 || new Set(eventIds).size !== eventIds.length || eventIds.some(id => typeof id !== "string" || !id.startsWith('inbox_event_') || id.length > 500 || /\s/.test(id)))
+            throw new Error("Acknowledge 1 to 100 distinct inbox event IDs.");
+        return this.request("/agents/" + encodeURIComponent(this.agentId) + "/inbox/ack", { method: "POST", body: JSON.stringify({ eventIds }) });
+    }
+    /** Forward changes since a checkpoint. Reads neither save a cursor nor acknowledge work. */
+    events(options = {}) {
+        return this.readForwardPage("events", options);
+    }
+    /** At-least-once page processing; save only after the whole handler succeeds. */
+    processEvents(handler, options = {}) {
+        return this.processForwardPage("events", handler, options);
+    }
+    readForwardPage(stream, options) {
+        if (!options || typeof options !== "object" || Array.isArray(options) || Reflect.ownKeys(options).some(key => typeof key !== "string" || !["cursor", "limit", "view", "signal"].includes(key)))
+            throw new Error("Unsupported forward options; use cursor, limit, view or signal.");
+        const params = new URLSearchParams();
+        if (options.limit !== undefined) {
+            if (!Number.isSafeInteger(options.limit) || options.limit < 1 || options.limit > 100)
+                throw new Error("Forward limit must be between 1 and 100.");
+            params.set("limit", String(options.limit));
+        }
+        if (options.cursor !== undefined && options.cursor !== null) {
+            if (typeof options.cursor !== "string" || !options.cursor)
+                throw new Error("A forward cursor must be nonempty or null.");
+            params.set("cursor", options.cursor);
+        }
+        if (options.view !== undefined) {
+            if (stream === "inbox" || !["latest", "following"].includes(options.view))
+                throw new Error("This view is not supported by the forward stream.");
+            params.set("view", options.view);
+        }
+        return this.request("/agents/" + encodeURIComponent(this.agentId) + "/" + stream + (params.size ? "?" + params.toString() : ""), {}, 0, true, options.signal);
+    }
+    async processForwardPage(stream, handler, options) {
+        if (typeof handler !== "function")
+            throw new Error("A forward page handler is required.");
+        const store = this.cursorStore;
+        if (!store)
+            throw new Error("Forward processing requires a consumer-owned CursorStore.");
+        const key = `${this.agentId}:${stream}:${options.view ?? "latest"}`;
+        if (this.streamPageConsumers.has(key))
+            throw new AgentelStreamCheckpointError("STREAM_CONSUMER_BUSY", "A forward consumer is already processing this stream.");
+        this.streamPageConsumers.add(key);
+        try {
+            const before = await store.get(key);
+            if (before !== null && (typeof before !== "string" || !before))
+                throw new Error("Invalid saved forward checkpoint.");
+            if (options.cursor !== undefined && options.cursor !== before)
+                throw new AgentelStreamCheckpointError("STREAM_CHECKPOINT_CONFLICT", "The explicit cursor differs from this consumer's checkpoint.");
+            const page = await this.readForwardPage(stream, { ...options, cursor: before });
+            const next = page.nextCursor;
+            if (page.agentId !== this.agentId || page.direction !== "FORWARD" || typeof next !== "string" || !next || !Array.isArray(page.events) || typeof page.hasMore !== "boolean"
+                || (stream === "events" && page.view !== (options.view ?? "latest")) || (page.hasMore && !page.events.length) || (page.events.length > 0 && next === before)
+                || page.acknowledgement !== (stream === "events" ? "LOCAL_CHECKPOINT_ONLY" : "EXPLICIT"))
+                throw new AgentelStreamCheckpointError("STREAM_PAGE_INVALID", "Invalid forward page boundary.");
+            let last = 0;
+            const ids = new Set();
+            for (const event of page.events) {
+                if (!event.id || ids.has(event.id) || !Number.isSafeInteger(event.sequence) || event.sequence <= last)
+                    throw new AgentelStreamCheckpointError("STREAM_PAGE_INVALID", "Forward events must have unique IDs in ascending sequence order.");
+                ids.add(event.id);
+                last = event.sequence;
+            }
+            await handler(page);
+            const aborted = options.signal?.aborted ? options.signal : this.signal?.aborted ? this.signal : null;
+            if (aborted)
+                throw aborted.reason ?? new DOMException("Processing aborted.", "AbortError");
+            if (await store.get(key) !== before)
+                throw new AgentelStreamCheckpointError("STREAM_CHECKPOINT_CONFLICT", "The forward checkpoint changed during processing.");
+            await store.set(key, next);
+            return page;
+        }
+        finally {
+            this.streamPageConsumers.delete(key);
+        }
     }
     async stream(options = {}) {
         const view = options.view ?? "latest";
