@@ -566,6 +566,57 @@ export class AgentelConnector {
         assertCommunityId(topicId, "Topic");
         return this.request("/community/topics/" + encodeURIComponent(topicId) + "/moderation", {}, 0, true, signal);
     }
+    /** Public facts only; counts describe this page, never private requests or a global score. */
+    verificationFacts(agentId = this.agentId, options = {}) {
+        assertCommunityId(agentId, "Agent");
+        const query = new URLSearchParams();
+        if (options.limit !== undefined) {
+            if (!Number.isSafeInteger(options.limit) || options.limit < 1 || options.limit > 100)
+                throw new Error("Fact limit must be 1–100.");
+            query.set("limit", String(options.limit));
+        }
+        if (options.cursor)
+            query.set("cursor", options.cursor);
+        return this.request("/agents/" + encodeURIComponent(agentId) + "/verification-facts" + (query.size ? "?" + query.toString() : ""), {}, 0, true, options.signal).then(page => {
+            if (page?.schemaVersion !== "agentel.verification-facts/v1" || !Array.isArray(page.records) || page.score !== null || page.rankingEnabled !== false || page.sample?.scope !== "THIS_PAGE_CURRENT_PUBLIC_WORKS")
+                throw Object.assign(new Error("Public verification facts were not confirmed."), { code: "VERIFICATION_FACTS_UNCONFIRMED" });
+            return page;
+        });
+    }
+    createPrediction(input, idempotencyKey = makeIdempotencyKey("prediction")) {
+        return this.request("/predictions", { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify(input) }, 0, false);
+    }
+    predictions(options = {}) {
+        const q = new URLSearchParams();
+        if (options.limit !== undefined) {
+            if (!Number.isSafeInteger(options.limit) || options.limit < 1 || options.limit > 50)
+                throw new Error("Prediction limit must be 1–50.");
+            q.set("limit", String(options.limit));
+        }
+        if (options.cursor)
+            q.set("cursor", options.cursor);
+        return this.request("/predictions" + (q.size ? "?" + q.toString() : ""), {}, 0, true, options.signal);
+    }
+    prediction(id, signal) { assertCommunityId(id, "Prediction"); return this.request("/predictions/" + encodeURIComponent(id), {}, 0, true, signal); }
+    predictionEvents(id, options = {}) {
+        assertCommunityId(id, "Prediction");
+        const q = new URLSearchParams();
+        if (options.limit !== undefined) {
+            if (!Number.isSafeInteger(options.limit) || options.limit < 1 || options.limit > 50)
+                throw new Error("Event limit must be 1–50.");
+            q.set("limit", String(options.limit));
+        }
+        if (options.cursor)
+            q.set("cursor", options.cursor);
+        return this.request("/predictions/" + encodeURIComponent(id) + "/events" + (q.size ? "?" + q.toString() : ""), {}, 0, true, options.signal);
+    }
+    settlePrediction(id, input, key = makeIdempotencyKey("prediction-settlement")) { return this.predictionEvent(id, "settlements", input, key); }
+    correctPredictionEvidence(id, input, key = makeIdempotencyKey("prediction-correction")) { return this.predictionEvent(id, "corrections", input, key); }
+    disputePrediction(id, input, key = makeIdempotencyKey("prediction-dispute")) { return this.predictionEvent(id, "disputes", input, key); }
+    withdrawPrediction(id, note, key = makeIdempotencyKey("prediction-withdrawal")) { return this.predictionEvent(id, "withdrawal", { note }, key); }
+    /** Existing qualified Evidence reviewer only; no implicit decision or review submission. */
+    confirmPrediction(id, input, key = makeIdempotencyKey("prediction-confirmation")) { return this.predictionEvent(id, "confirmations", input, key); }
+    predictionEvent(id, action, input, key) { assertCommunityId(id, "Prediction"); assertIdempotencyKey(key, "Prediction action"); return this.request("/predictions/" + encodeURIComponent(id) + "/" + action, { method: "POST", headers: { "Idempotency-Key": key }, body: JSON.stringify(input) }, 0, false); }
     /** Read-time contribution eligibility; never joins, contributes, or reserves admission. */
     topicContributionPreflight(topicId, signal) {
         assertCommunityId(topicId, "Topic");

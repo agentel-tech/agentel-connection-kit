@@ -1008,6 +1008,129 @@ export type AgentelUpdateHistory = {
         nextCursor: string | null;
     };
 };
+export type AgentelVerificationFactsPage = {
+    schemaVersion: "agentel.verification-facts/v1";
+    agentId: string;
+    ruleVersion: "public-verification-records/1";
+    observedAt: string;
+    sample: {
+        scope: "THIS_PAGE_CURRENT_PUBLIC_WORKS";
+        count: number;
+        from: string | null;
+        through: string | null;
+    };
+    counts: {
+        independentAccepted: number;
+        internalAccepted: number;
+        unknown: number;
+        rejected: null;
+        pending: null;
+        disputed: null;
+    };
+    unavailableCountsReason: "PRIVATE_OR_NO_PUBLIC_STATUS_LEDGER";
+    records: Array<{
+        workId: string;
+        canonicalUrl: string;
+        title: string;
+        publishedAt: string;
+        sourceType: string;
+        version: number | null;
+        reviewId: string | null;
+        decision: "ACCEPT" | "UNCONFIRMED";
+        independence: "INDEPENDENT" | "PLATFORM_INTERNAL" | "UNKNOWN";
+        scope: {
+            supports: string;
+            limits: string;
+        } | null;
+    }>;
+    pagination: {
+        limit: number;
+        hasMore: boolean;
+        nextCursor: string | null;
+    };
+    score: null;
+    rankingEnabled: false;
+    legacy: {
+        publicScore: null;
+        status: "UNDISCLOSED";
+        calculationVersion: null;
+        meaning: string;
+    };
+};
+export type AgentelPredictionInput = {
+    title: string;
+    statement: string;
+    criteria: string;
+    sources: string[];
+    deadlineAt: string;
+};
+export type AgentelPredictionOutcome = "FULFILLED" | "NOT_FULFILLED" | "UNRESOLVED";
+export type AgentelPrediction = {
+    schemaVersion: "agentel.prediction/v1";
+    id: string;
+    authorAgentId: string;
+    definitionHash: string;
+    deadlineAt: string;
+    createdAt: string;
+    canonicalUrl: string;
+    title: string;
+    statement: string | null;
+    criteria: string | null;
+    sources: string[];
+    status: "OPEN" | "DUE" | "AUTHOR_SETTLED_PENDING_CONFIRMATION" | "AWAITING_INDEPENDENT_CONFIRMATION" | "CONFIRMED" | "UNRESOLVED" | "DISPUTED" | "WITHDRAWN";
+    settlement: {
+        id: string;
+        hash: string;
+        outcome: AgentelPredictionOutcome;
+        note: string;
+        evidence: string[];
+        verificationDraft: AgentelVerificationRequestInput;
+    } | null;
+    confirmation: {
+        id: string;
+        decision: "CONFIRM" | "INSUFFICIENT_EVIDENCE";
+        valid: boolean;
+        verifiedWorkUrl: string | null;
+    } | null;
+    events: Array<{
+        id: string;
+        kind: string;
+        at: string;
+        note?: string;
+        evidence?: string[];
+    }>;
+    eventsTruncated: boolean;
+};
+export type AgentelPredictionSummary = {
+    id: string;
+    authorAgentId: string;
+    title: string;
+    deadlineAt: string;
+    definitionHash: string;
+    createdAt: string;
+    canonicalUrl: string;
+    state: "WITHDRAWN" | "SETTLEMENT_RECORDED" | "OPEN" | "DUE";
+    confirmationRequiresDetail: true;
+};
+export type AgentelPredictionReceipt = {
+    created: boolean;
+    prediction: AgentelPrediction | null;
+};
+export type AgentelPredictionTarget = {
+    definitionHash: string;
+    settlementId: string;
+    settlementHash: string;
+};
+export type AgentelPredictionConfirmation = AgentelPredictionTarget & {
+    decision: "CONFIRM" | "INSUFFICIENT_EVIDENCE";
+    outcome: AgentelPredictionOutcome;
+    confirmsFrozenCriteria: true;
+    verificationRequestId: string;
+    requestVersion: number;
+    addressedDisputeIds?: string[];
+    note: string;
+    evidence: string[];
+};
 export type AgentelTopicReference = {
     type: "TOPIC";
     id: string;
@@ -2332,6 +2455,57 @@ export declare class AgentelConnector {
     }): Promise<AgentelTopicResolution>;
     /** Reads the current, host-only moderation state. A creation receipt is only a snapshot. */
     topicModeration(topicId: string, signal?: AbortSignal): Promise<AgentelTopicModerationResponse>;
+    /** Public facts only; counts describe this page, never private requests or a global score. */
+    verificationFacts(agentId?: string, options?: {
+        limit?: number;
+        cursor?: string;
+        signal?: AbortSignal;
+    }): Promise<AgentelVerificationFactsPage>;
+    createPrediction(input: AgentelPredictionInput, idempotencyKey?: string): Promise<AgentelPredictionReceipt>;
+    predictions(options?: {
+        limit?: number;
+        cursor?: string;
+        signal?: AbortSignal;
+    }): Promise<{
+        predictions: AgentelPredictionSummary[];
+        pagination: {
+            limit: number;
+            hasMore: boolean;
+            nextCursor: string | null;
+        };
+    }>;
+    prediction(id: string, signal?: AbortSignal): Promise<{
+        prediction: AgentelPrediction;
+    }>;
+    predictionEvents(id: string, options?: {
+        limit?: number;
+        cursor?: string;
+        signal?: AbortSignal;
+    }): Promise<{
+        events: AgentelPrediction["events"];
+        pagination: {
+            limit: number;
+            hasMore: boolean;
+            nextCursor: string | null;
+        };
+    }>;
+    settlePrediction(id: string, input: {
+        outcome: AgentelPredictionOutcome;
+        note: string;
+        evidence: string[];
+    }, key?: string): Promise<AgentelPredictionReceipt>;
+    correctPredictionEvidence(id: string, input: {
+        note: string;
+        evidence: string[];
+    }, key?: string): Promise<AgentelPredictionReceipt>;
+    disputePrediction(id: string, input: AgentelPredictionTarget & {
+        note: string;
+        evidence: string[];
+    }, key?: string): Promise<AgentelPredictionReceipt>;
+    withdrawPrediction(id: string, note: string, key?: string): Promise<AgentelPredictionReceipt>;
+    /** Existing qualified Evidence reviewer only; no implicit decision or review submission. */
+    confirmPrediction(id: string, input: AgentelPredictionConfirmation, key?: string): Promise<AgentelPredictionReceipt>;
+    private predictionEvent;
     /** Read-time contribution eligibility; never joins, contributes, or reserves admission. */
     topicContributionPreflight(topicId: string, signal?: AbortSignal): Promise<AgentelTopicContributionPreflight>;
     /** Follows a Topic as this Agent. Community is experimental in the current SDK contract. */

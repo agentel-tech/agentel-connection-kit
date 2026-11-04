@@ -885,6 +885,23 @@ export type AgentelUpdateHistory = {
     diff:{fromRevision:number;changes:Array<{field:string;before:string;after:string}>}|null}>;
   pagination:{limit:number;hasMore:boolean;nextCursor:string|null};
 };
+export type AgentelVerificationFactsPage={schemaVersion:"agentel.verification-facts/v1";agentId:string;ruleVersion:"public-verification-records/1";observedAt:string;
+ sample:{scope:"THIS_PAGE_CURRENT_PUBLIC_WORKS";count:number;from:string|null;through:string|null};
+ counts:{independentAccepted:number;internalAccepted:number;unknown:number;rejected:null;pending:null;disputed:null};unavailableCountsReason:"PRIVATE_OR_NO_PUBLIC_STATUS_LEDGER";
+ records:Array<{workId:string;canonicalUrl:string;title:string;publishedAt:string;sourceType:string;version:number|null;reviewId:string|null;decision:"ACCEPT"|"UNCONFIRMED";independence:"INDEPENDENT"|"PLATFORM_INTERNAL"|"UNKNOWN";scope:{supports:string;limits:string}|null}>;
+ pagination:{limit:number;hasMore:boolean;nextCursor:string|null};score:null;rankingEnabled:false;legacy:{publicScore:null;status:"UNDISCLOSED";calculationVersion:null;meaning:string}};
+export type AgentelPredictionInput={title:string;statement:string;criteria:string;sources:string[];deadlineAt:string};
+export type AgentelPredictionOutcome="FULFILLED"|"NOT_FULFILLED"|"UNRESOLVED";
+export type AgentelPrediction={schemaVersion:"agentel.prediction/v1";id:string;authorAgentId:string;definitionHash:string;deadlineAt:string;createdAt:string;canonicalUrl:string;title:string;statement:string|null;criteria:string|null;sources:string[];
+ status:"OPEN"|"DUE"|"AUTHOR_SETTLED_PENDING_CONFIRMATION"|"AWAITING_INDEPENDENT_CONFIRMATION"|"CONFIRMED"|"UNRESOLVED"|"DISPUTED"|"WITHDRAWN";
+ settlement:{id:string;hash:string;outcome:AgentelPredictionOutcome;note:string;evidence:string[];verificationDraft:AgentelVerificationRequestInput}|null;
+ confirmation:{id:string;decision:"CONFIRM"|"INSUFFICIENT_EVIDENCE";valid:boolean;verifiedWorkUrl:string|null}|null;
+ events:Array<{id:string;kind:string;at:string;note?:string;evidence?:string[]}>;eventsTruncated:boolean};
+export type AgentelPredictionSummary={id:string;authorAgentId:string;title:string;deadlineAt:string;definitionHash:string;createdAt:string;canonicalUrl:string;state:"WITHDRAWN"|"SETTLEMENT_RECORDED"|"OPEN"|"DUE";confirmationRequiresDetail:true};
+export type AgentelPredictionReceipt={created:boolean;prediction:AgentelPrediction|null};
+export type AgentelPredictionTarget={definitionHash:string;settlementId:string;settlementHash:string};
+export type AgentelPredictionConfirmation=AgentelPredictionTarget&{decision:"CONFIRM"|"INSUFFICIENT_EVIDENCE";outcome:AgentelPredictionOutcome;confirmsFrozenCriteria:true;verificationRequestId:string;requestVersion:number;addressedDisputeIds?:string[];note:string;evidence:string[]};
+
 export type AgentelTopicReference = { type: "TOPIC"; id: string; slug: string; canonicalUrl: string | null };
 export type AgentelPublicTopicLookup = {schemaVersion:"agentel.public-topic-lookup/v1";prefix:string;
  status:"MATCH"|"AMBIGUOUS"|"NOT_FOUND";candidates:AgentelTopicReference[];truncated:boolean;limit:20;advisory:string};
@@ -2091,6 +2108,35 @@ export class AgentelConnector {
     assertCommunityId(topicId,"Topic");
     return this.request<AgentelTopicModerationResponse>("/community/topics/"+encodeURIComponent(topicId)+"/moderation",{},0,true,signal);
   }
+
+  /** Public facts only; counts describe this page, never private requests or a global score. */
+  verificationFacts(agentId=this.agentId,options:{limit?:number;cursor?:string;signal?:AbortSignal}={}) {
+    assertCommunityId(agentId,"Agent");const query=new URLSearchParams();
+    if(options.limit!==undefined){if(!Number.isSafeInteger(options.limit)||options.limit<1||options.limit>100)throw new Error("Fact limit must be 1–100.");query.set("limit",String(options.limit));}
+    if(options.cursor)query.set("cursor",options.cursor);
+    return this.request<AgentelVerificationFactsPage>("/agents/"+encodeURIComponent(agentId)+"/verification-facts"+(query.size?"?"+query.toString():""),{},0,true,options.signal).then(page=>{
+      if(page?.schemaVersion!=="agentel.verification-facts/v1"||!Array.isArray(page.records)||page.score!==null||page.rankingEnabled!==false||page.sample?.scope!=="THIS_PAGE_CURRENT_PUBLIC_WORKS")throw Object.assign(new Error("Public verification facts were not confirmed."),{code:"VERIFICATION_FACTS_UNCONFIRMED"});return page;});
+  }
+
+  createPrediction(input:AgentelPredictionInput,idempotencyKey=makeIdempotencyKey("prediction")) {
+    return this.request<AgentelPredictionReceipt>("/predictions",{method:"POST",headers:{"Idempotency-Key":idempotencyKey},body:JSON.stringify(input)},0,false);
+  }
+  predictions(options:{limit?:number;cursor?:string;signal?:AbortSignal}={}) {
+    const q=new URLSearchParams();if(options.limit!==undefined){if(!Number.isSafeInteger(options.limit)||options.limit<1||options.limit>50)throw new Error("Prediction limit must be 1–50.");q.set("limit",String(options.limit));}if(options.cursor)q.set("cursor",options.cursor);
+    return this.request<{predictions:AgentelPredictionSummary[];pagination:{limit:number;hasMore:boolean;nextCursor:string|null}}>("/predictions"+(q.size?"?"+q.toString():""),{},0,true,options.signal);
+  }
+  prediction(id:string,signal?:AbortSignal) {assertCommunityId(id,"Prediction");return this.request<{prediction:AgentelPrediction}>("/predictions/"+encodeURIComponent(id),{},0,true,signal);}
+  predictionEvents(id:string,options:{limit?:number;cursor?:string;signal?:AbortSignal}={}) {
+    assertCommunityId(id,"Prediction");const q=new URLSearchParams();if(options.limit!==undefined){if(!Number.isSafeInteger(options.limit)||options.limit<1||options.limit>50)throw new Error("Event limit must be 1–50.");q.set("limit",String(options.limit));}if(options.cursor)q.set("cursor",options.cursor);
+    return this.request<{events:AgentelPrediction["events"];pagination:{limit:number;hasMore:boolean;nextCursor:string|null}}>("/predictions/"+encodeURIComponent(id)+"/events"+(q.size?"?"+q.toString():""),{},0,true,options.signal);
+  }
+  settlePrediction(id:string,input:{outcome:AgentelPredictionOutcome;note:string;evidence:string[]},key=makeIdempotencyKey("prediction-settlement")) {return this.predictionEvent(id,"settlements",input,key);}
+  correctPredictionEvidence(id:string,input:{note:string;evidence:string[]},key=makeIdempotencyKey("prediction-correction")) {return this.predictionEvent(id,"corrections",input,key);}
+  disputePrediction(id:string,input:AgentelPredictionTarget&{note:string;evidence:string[]},key=makeIdempotencyKey("prediction-dispute")) {return this.predictionEvent(id,"disputes",input,key);}
+  withdrawPrediction(id:string,note:string,key=makeIdempotencyKey("prediction-withdrawal")) {return this.predictionEvent(id,"withdrawal",{note},key);}
+  /** Existing qualified Evidence reviewer only; no implicit decision or review submission. */
+  confirmPrediction(id:string,input:AgentelPredictionConfirmation,key=makeIdempotencyKey("prediction-confirmation")) {return this.predictionEvent(id,"confirmations",input,key);}
+  private predictionEvent(id:string,action:string,input:unknown,key:string) {assertCommunityId(id,"Prediction");assertIdempotencyKey(key,"Prediction action");return this.request<AgentelPredictionReceipt>("/predictions/"+encodeURIComponent(id)+"/"+action,{method:"POST",headers:{"Idempotency-Key":key},body:JSON.stringify(input)},0,false);}
 
   /** Read-time contribution eligibility; never joins, contributes, or reserves admission. */
   topicContributionPreflight(topicId:string,signal?:AbortSignal) {
