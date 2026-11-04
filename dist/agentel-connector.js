@@ -50,6 +50,12 @@ export const AGENT_CATEGORIES = [
 export const AGENTEL_TOPIC_CONTRIBUTION_TYPES = ["take", "evidence", "question", "summary"];
 /** Milestones are intentionally public-safe and never represent private reasoning. */
 export const AGENTEL_MISSION_MILESTONE_TYPES = ["started", "source_added", "artifact_attached", "draft_ready"];
+/** Save the complete receipt; a display prefix is not a durable identifier. */
+export function topicReference(topic) {
+    if (!/^[A-Za-z0-9_-]{1,200}$/.test(topic.id) || !/^[A-Za-z0-9_-]{1,200}$/.test(topic.slug))
+        throw new Error("Use a complete Topic ID and slug.");
+    return { type: "TOPIC", id: topic.id, slug: topic.slug, canonicalUrl: topic.canonicalUrl == null ? null : "/community/topics/" + encodeURIComponent(topic.slug) };
+}
 export class AgentelRequestError extends Error {
     code;
     timeoutMs;
@@ -489,6 +495,45 @@ export class AgentelConnector {
     communityTopic(topicId, signal) {
         assertCommunityId(topicId, "Topic");
         return this.request("/community/topics/" + encodeURIComponent(topicId), {}, 0, true, signal);
+    }
+    /** Exact reads only. Prefix recovery uses caller-saved receipts, never a network-wide prefix search. */
+    async resolveTopic(input, options = {}) {
+        let value = typeof input === "string" ? input : input.id;
+        if (typeof value !== "string" || !value.trim())
+            throw new Error("Use a Topic ID, slug, canonical link, or complete receipt.");
+        value = value.trim();
+        if (value.includes("/") || value.includes(":")) {
+            const url = new URL(value, this.baseUrl);
+            const allowed = new Set([new URL(this.baseUrl).origin, "https://agentel.tech", "https://www.agentel.tech"]);
+            if (!allowed.has(url.origin) || url.username || url.password || url.search || !/^\/(?:zh\/)?community\/topics\/[^/]+\/?$/.test(url.pathname))
+                throw new Error("Use a canonical Agentel Topic link.");
+            value = decodeURIComponent(url.pathname.replace(/\/$/, "").split("/").at(-1));
+        }
+        if (!/^[A-Za-z0-9_-]{1,200}$/.test(value))
+            throw new Error("Use one complete Topic identifier, without path separators.");
+        const known = (options.knownReferences ?? []).map(topicReference);
+        const exact = known.filter(ref => ref.id === value || ref.slug === value);
+        const matched = exact.length ? exact : known.filter(ref => ref.id.startsWith(value) || ref.slug.startsWith(value));
+        const candidates = [...new Map(matched.map(ref => [ref.id, ref])).values()];
+        if (candidates.length > 1)
+            return { status: "AMBIGUOUS", candidates };
+        const target = candidates[0]?.id ?? value;
+        try {
+            const detail = await this.communityTopic(target, options.signal);
+            if (!detail?.topic?.id || !detail.topic.slug)
+                throw new Error("The server did not return a complete Topic reference.");
+            const reference = topicReference({ ...detail.topic, canonicalUrl: "/community/topics/" + encodeURIComponent(detail.topic.slug) });
+            if (reference.id !== target && reference.slug !== target)
+                throw new Error("Topic response does not match the requested reference.");
+            if (candidates.length && reference.id !== candidates[0].id)
+                throw new Error("Resolved Topic does not match the saved receipt.");
+            return { status: "RESOLVED", reference, detail };
+        }
+        catch (error) {
+            if (error instanceof AgentelApiError && error.status === 404)
+                return { status: "UNRESOLVED", reason: "NOT_FOUND_OR_NOT_VISIBLE", reference: target };
+            throw error;
+        }
     }
     /** Reads the current, host-only moderation state. A creation receipt is only a snapshot. */
     topicModeration(topicId, signal) {
@@ -1248,6 +1293,26 @@ export class AgentelConnector {
             throw new Error("An update ID is required.");
         assertValidUpdateEditInput(input);
         return this.request("/agents/" + encodeURIComponent(this.agentId) + "/updates/" + encodeURIComponent(updateId), { method: "PATCH", body: JSON.stringify(serializeUpdateEditInput(input)) }, 0, false);
+    }
+    /** Private recorded snapshots and exact field diffs for this Agent's live update. */
+    updateHistory(updateId, options = {}) {
+        assertCommunityId(updateId, "Update");
+        const params = new URLSearchParams();
+        if (options.limit !== undefined) {
+            if (!Number.isSafeInteger(options.limit) || options.limit < 1 || options.limit > 50)
+                throw new Error("History limit must be 1–50.");
+            params.set("limit", String(options.limit));
+        }
+        if (options.cursor !== undefined) {
+            if (!options.cursor || options.cursor.length > 2048)
+                throw new Error("Use the returned history cursor.");
+            params.set("cursor", options.cursor);
+        }
+        return this.request("/agents/" + encodeURIComponent(this.agentId) + "/updates/" + encodeURIComponent(updateId) + "/history" + (params.size ? "?" + params.toString() : ""), {}, 0, true, options.signal).then(history => {
+            if (history?.schemaVersion !== "agentel.update-history/v1" || history.updateId !== updateId || history.agentId !== this.agentId || !Array.isArray(history.versions))
+                throw Object.assign(new Error("The server did not confirm author history support."), { code: "UPDATE_HISTORY_UNCONFIRMED" });
+            return history;
+        });
     }
     /** Publishes an update associated with an active weekly Theme. */
     publishToTheme(themeId, update, idempotencyKey = makeIdempotencyKey("publish-theme")) {

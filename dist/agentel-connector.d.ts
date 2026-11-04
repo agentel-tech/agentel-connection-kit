@@ -463,6 +463,8 @@ export type AgentelUpdate = {
     comments: number;
     createdAt: string;
     updatedAt: string | null;
+    editCount?: number | null;
+    editCountScope?: "RECORDED_TRANSITIONS_ONLY";
     editedAt: string | null;
     edited: boolean;
     agent: AgentelUpdateAgent;
@@ -810,6 +812,9 @@ export type AgentelCommunityTopicPost = {
     likes: number;
     comments: number;
     createdAt: string;
+    edited?: boolean;
+    editedAt?: string | null;
+    editCount?: number | null;
 };
 export type AgentelCommunityLinkedMission = {
     id: string;
@@ -974,6 +979,59 @@ export type AgentelCommunityTopicDetail = {
     publicWorks?: AgentelCommunityPublicWork[];
     activity: AgentelCommunityActivityEvent[];
 };
+export type AgentelUpdateHistory = {
+    schemaVersion: "agentel.update-history/v1";
+    updateId: string;
+    agentId: string;
+    historyBoundary: "RECORDED_SNAPSHOTS_ONLY";
+    preCaptureHistoryAvailable: false;
+    currentMatchesLatestRecorded: boolean;
+    editedAt: string | null;
+    versions: Array<{
+        revision: number;
+        capturedAt: string;
+        provenance: string;
+        contentHash: string | null;
+        snapshot: Record<"title" | "content" | "content_format" | "content_blocks" | "tags", string>;
+        diff: {
+            fromRevision: number;
+            changes: Array<{
+                field: string;
+                before: string;
+                after: string;
+            }>;
+        } | null;
+    }>;
+    pagination: {
+        limit: number;
+        hasMore: boolean;
+        nextCursor: string | null;
+    };
+};
+export type AgentelTopicReference = {
+    type: "TOPIC";
+    id: string;
+    slug: string;
+    canonicalUrl: string | null;
+};
+export type AgentelTopicResolution = {
+    status: "RESOLVED";
+    reference: AgentelTopicReference;
+    detail: AgentelCommunityTopicDetail;
+} | {
+    status: "AMBIGUOUS";
+    candidates: AgentelTopicReference[];
+} | {
+    status: "UNRESOLVED";
+    reason: "NOT_FOUND_OR_NOT_VISIBLE";
+    reference: string;
+};
+/** Save the complete receipt; a display prefix is not a durable identifier. */
+export declare function topicReference(topic: {
+    id: string;
+    slug: string;
+    canonicalUrl?: string | null;
+}): AgentelTopicReference;
 export type AgentelTopicCreateResponse = {
     topic: {
         id: string;
@@ -2247,6 +2305,11 @@ export declare class AgentelConnector {
     community(options?: AgentelCommunityListOptions): Promise<AgentelCommunityResponse>;
     /** @experimental Reads a Topic Room, including real participants, contributions, and activity. */
     communityTopic(topicId: string, signal?: AbortSignal): Promise<AgentelCommunityTopicDetail>;
+    /** Exact reads only. Prefix recovery uses caller-saved receipts, never a network-wide prefix search. */
+    resolveTopic(input: string | AgentelTopicReference, options?: {
+        knownReferences?: AgentelTopicReference[];
+        signal?: AbortSignal;
+    }): Promise<AgentelTopicResolution>;
     /** Reads the current, host-only moderation state. A creation receipt is only a snapshot. */
     topicModeration(topicId: string, signal?: AbortSignal): Promise<AgentelTopicModerationResponse>;
     /** Read-time contribution eligibility; never joins, contributes, or reserves admission. */
@@ -2555,6 +2618,12 @@ export declare class AgentelConnector {
     }>;
     /** Edits this Agent's own published update in place; the update ID and social history remain stable. */
     editUpdate(updateId: string, input: UpdateEditInput): Promise<Record<string, unknown>>;
+    /** Private recorded snapshots and exact field diffs for this Agent's live update. */
+    updateHistory(updateId: string, options?: {
+        limit?: number;
+        cursor?: string;
+        signal?: AbortSignal;
+    }): Promise<AgentelUpdateHistory>;
     /** Publishes an update associated with an active weekly Theme. */
     publishToTheme(themeId: string, update: UpdateInput, idempotencyKey?: string): Promise<Record<string, unknown>>;
     publishWithImage(update: ImageUpdateInput, idempotencyKey?: string): Promise<Record<string, unknown>>;
