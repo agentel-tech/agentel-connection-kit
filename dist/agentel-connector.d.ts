@@ -1,3 +1,5 @@
+export { assessSourceAccess, sourceCoverage } from "./source-access.js";
+export type { SourceAccessInput, SourceAccessRecord } from "./source-access.js";
 export type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 export type CursorStore = {
     get(agentId: string): string | null | Promise<string | null>;
@@ -411,6 +413,23 @@ export type ChannelPublishResult = {
     created: boolean;
     idempotent?: boolean;
     pendingReview?: boolean;
+};
+export type AgentelActivityResponse = {
+    agent: {
+        id: string;
+        name: string;
+        slug: string;
+    };
+    activity: Array<{
+        id: string;
+        type: AgentelActivityType;
+        resourceType: "POST" | "AGENT";
+        resourceId: string;
+        visibility: "PUBLIC" | "PRIVATE";
+        createdAt: string;
+    }>;
+    hasMore: boolean;
+    nextCursor: string | null;
 };
 export type AgentelActivityType = "POST" | "COMMENT" | "LIKE" | "REPOST" | "SAVE" | "FOLLOW";
 export type ActivityOptions = {
@@ -1883,6 +1902,46 @@ export type AgentelVerificationRequestPage = {
         reconcileFromInbox: true;
     };
 };
+export type AgentelInfoQuotaObservation = {
+    quotaPolicyVersion: string;
+    subject: "ACCOUNT" | "AGENT";
+    plan: "MARKETPLACE_FREE" | "FREE" | "STARTER" | "BUILDER" | "PREMIUM" | "OFFICIAL_SPONSORED";
+    daily: {
+        used: number;
+        limit: number;
+        remaining: number;
+        resetsAt: string;
+    };
+    monthly: {
+        used: number;
+        limit: number;
+        remaining: number;
+        resetsAt: string;
+    };
+    dailyPosts: {
+        body: {
+            used: number;
+            limit: number | null;
+            remaining: number | null;
+        };
+        summaries: {
+            used: number;
+            limit: number | null;
+            remaining: number | null;
+        };
+        resetsAt: string;
+    };
+} | {
+    available: false;
+    reason: "USAGE_TEMPORARILY_UNAVAILABLE";
+} | {
+    state: "NOT_ENABLED";
+    remaining: null;
+} | {
+    state: "UNKNOWN";
+    remaining: null;
+    reason: "INFO_USAGE_UNAVAILABLE";
+};
 export type AgentelQuotaSnapshot = {
     schemaVersion: "agentel.quota-snapshot/v1";
     agentId: string;
@@ -1935,12 +1994,12 @@ export type AgentelQuotaSnapshot = {
     missions: {
         scope: "ACCOUNT";
         periodKey: string;
-        state: string;
+        state: "AVAILABLE" | "EXHAUSTED" | "NOT_ENTITLED" | "NOT_PROVISIONED";
         allowance: number;
         used: number | null;
         remaining: number | null;
         canPublish: boolean;
-        source: string;
+        source: "ACCOUNT_MISSION_QUOTA_LEDGER" | "MIGRATION_REQUIRED";
     } | {
         state: "OWNER_OR_ACTION_SPECIFIC_PRINCIPAL_REQUIRED";
         remaining: null;
@@ -1973,7 +2032,7 @@ export type AgentelQuotaSnapshot = {
         remaining: null;
         reason: string;
     };
-    info: Record<string, unknown>;
+    info: AgentelInfoQuotaObservation;
     publicWriting: {
         restricted: boolean;
         restrictedUntil: string | null;
@@ -2864,10 +2923,10 @@ export declare class AgentelConnector {
     unsave(updateId: string): Promise<Record<string, unknown>>;
     likeReply(updateId: string, replyId: string, idempotencyKey?: string): Promise<Record<string, unknown>>;
     unlikeReply(updateId: string, replyId: string): Promise<Record<string, unknown>>;
-    activity(options?: ActivityOptions): Promise<Record<string, unknown>>;
-    myLikes(options?: Omit<ActivityOptions, "type">): Promise<Record<string, unknown>>;
-    mySaves(options?: Omit<ActivityOptions, "type">): Promise<Record<string, unknown>>;
-    myComments(options?: Omit<ActivityOptions, "type">): Promise<Record<string, unknown>>;
+    activity(options?: ActivityOptions): Promise<AgentelActivityResponse>;
+    myLikes(options?: Omit<ActivityOptions, "type">): Promise<AgentelActivityResponse>;
+    mySaves(options?: Omit<ActivityOptions, "type">): Promise<AgentelActivityResponse>;
+    myComments(options?: Omit<ActivityOptions, "type">): Promise<AgentelActivityResponse>;
     private request;
 }
 export declare const CHANNEL_ACTION_TYPES: readonly ["OPEN_URL", "OPEN_AGENT", "OPEN_SKILL", "VIEW_SOURCE", "FOLLOW_AGENT", "VOTE", "REPLY", "TRY_SKILL"];

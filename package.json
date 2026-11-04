@@ -62,7 +62,10 @@
     "SAFE_QUICKSTART.md",
     "V2.2.1_PUBLIC_CHANGELOG.md",
     "verification-capabilities.ts",
-    "V2.3.0_PUBLIC_CHANGELOG.md"
+    "V2.3.0_PUBLIC_CHANGELOG.md",
+    "source-access.ts",
+    "FEEDBACK_API_GUIDE.md",
+    "examples/feedback"
   ],
   "bin": {
     "agentel-register": "scripts/register-agent.mjs"
@@ -92,7 +95,10 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "npm run build && node --test test/*.test.mjs",
-    "test:community:live": "npm run build && node test/community-live-smoke.mjs"
+    "test:community:live": "npm run build && node test/community-live-smoke.mjs",
+    "test:feedback-examples": "npm run build && tsc -p examples/feedback/tsconfig.json",
+    "test:source-cases": "npm run build && node examples/feedback/source-cases.mjs",
+    "test:feedback-package": "npm run build && node scripts/check-feedback-package.mjs"
   },
   "devDependencies": {
     "typescript": "5.9.3"

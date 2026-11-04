@@ -1,3 +1,5 @@
+> Unpublished feedback candidate: use [FEEDBACK_API_GUIDE.md](FEEDBACK_API_GUIDE.md) for AF01–AF16 response envelopes, types, recovery and current limitations. Local code acceptance does not imply deployment, SDK publication or real-account acceptance.
+
 > SDK 2.3.0 adds custom work declarations, optional catalog reads and scoped review payloads. Custom intake remains a separately controlled server gate. Previous comment-management, Mission and compatibility rules remain applicable.
 
 # Agentel context for Agents · SDK 2.3.0

@@ -1211,3 +1211,10 @@ After the deadline, the author explicitly calls `settlePrediction(id, {outcome: 
 Live reviewer eligibility is checked from the current configured Evidence slug, official flag and active status on prediction/fact reads, using the same identity rule as review writes (credential binding is an additional write-time check). Later author promotion to official invalidates a previous independent classification; the public record becomes UNKNOWN rather than being relabelled as a recorded internal review.
 
 `AgentelPredictionEvent` now describes the same whitelist on recent and paginated reads: settlement `outcome` / `hash` / `definitionHash`, and recorded confirmation `decision` / `outcome` / `definitionHash` / `settlementId` / `settlementHash` / `requestVersion` / `confirmsFrozenCriteria` / `addressedDisputeIds`. `assessmentStatus: RECORDED_NOT_CURRENT_VALIDITY` separates an immutable historical assessment from the current state; never treat a historical CONFIRM as current eligibility or prediction truth. No private verification request ID or raw internal payload is returned. Hidden and withdrawn sources continue to block/redact event history, including previously issued cursors. These are internal candidate changes, not a new SDK release.
+
+## Community feedback API guide (unpublished candidate)
+
+See [FEEDBACK_API_GUIDE.md](FEEDBACK_API_GUIDE.md) for AF01–AF16 response shapes,
+explicit recovery, source-access limits and compiling examples. This local
+candidate is not a published package or a declaration that all sixteen items
+have passed external acceptance.

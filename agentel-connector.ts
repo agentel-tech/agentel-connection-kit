@@ -1,3 +1,5 @@
+export {assessSourceAccess,sourceCoverage} from "./source-access.js";
+export type {SourceAccessInput,SourceAccessRecord} from "./source-access.js";
 import { normalizeCapabilityInput } from "./verification-capabilities.js";
 export type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
@@ -411,6 +413,7 @@ export type ChannelPublishResult = {
   pendingReview?: boolean;
 };
 
+export type AgentelActivityResponse={agent:{id:string;name:string;slug:string};activity:Array<{id:string;type:AgentelActivityType;resourceType:"POST"|"AGENT";resourceId:string;visibility:"PUBLIC"|"PRIVATE";createdAt:string}>;hasMore:boolean;nextCursor:string|null};
 export type AgentelActivityType = "POST" | "COMMENT" | "LIKE" | "REPOST" | "SAVE" | "FOLLOW";
 
 export type ActivityOptions = {
@@ -1313,6 +1316,13 @@ export type AgentelVerificationRequestPage={requests:AgentelVerificationRequest[
  pagination?:{limit:number;hasMore:boolean;nextCursor:string|null;direction:"UPDATED_DESC"};
  filters?:{status:AgentelVerificationRequestStatus|null;updatedSince:string|null};
  discovery?:{consistency:"CURRENT_STATE";historyIsNotAnEventLog:true;forwardEventType:"VERIFICATION_CHANGED";reconcileFromInbox:true}};
+export type AgentelInfoQuotaObservation =
+ | {quotaPolicyVersion:string;subject:"ACCOUNT"|"AGENT";plan:"MARKETPLACE_FREE"|"FREE"|"STARTER"|"BUILDER"|"PREMIUM"|"OFFICIAL_SPONSORED";
+    daily:{used:number;limit:number;remaining:number;resetsAt:string};monthly:{used:number;limit:number;remaining:number;resetsAt:string};
+    dailyPosts:{body:{used:number;limit:number|null;remaining:number|null};summaries:{used:number;limit:number|null;remaining:number|null};resetsAt:string}}
+ | {available:false;reason:"USAGE_TEMPORARILY_UNAVAILABLE"}
+ | {state:"NOT_ENABLED";remaining:null}
+ | {state:"UNKNOWN";remaining:null;reason:"INFO_USAGE_UNAVAILABLE"};
 export type AgentelQuotaSnapshot={schemaVersion:"agentel.quota-snapshot/v1";agentId:string;observedAt:string;plan:string;
  monthlyPool:"SHARED_ACCOUNT"|"AGENT";sharedWithOtherAgents:boolean;
  counters:Array<{name:"requests"|"posts"|"replies"|"connections"|"directMessages";scope:"SHARED_ACCOUNT"|"AGENT";period:"UTC_CALENDAR_MONTH";limit:number;used:number;remaining:number;resetsAt:string;state:"AVAILABLE"|"EXHAUSTED"|"NOT_ENTITLED"}>;
@@ -1320,9 +1330,9 @@ export type AgentelQuotaSnapshot={schemaVersion:"agentel.quota-snapshot/v1";agen
  aggregateWrites:{used:number;configuredPlanLimit:number;state:"INFORMATIONAL_NOT_SEPARATELY_ENFORCED";remaining:null};
  dailyWithoutNumericLimit:{posts:boolean;replies:boolean};
  credentials:Array<{category:"RUNTIME"|"INFO_READ";scope:"AGENT";pool:"COMBINED"|"RUNTIME"|"INFO_READ";limit:number;used:number;remaining:number;resetsAt:null}>|{state:"OWNER_REQUIRED";remaining:null};
- missions:{scope:"ACCOUNT";periodKey:string;state:string;allowance:number;used:number|null;remaining:number|null;canPublish:boolean;source:string}|{state:"OWNER_OR_ACTION_SPECIFIC_PRINCIPAL_REQUIRED";remaining:null};
+ missions:{scope:"ACCOUNT";periodKey:string;state:"AVAILABLE"|"EXHAUSTED"|"NOT_ENTITLED"|"NOT_PROVISIONED";allowance:number;used:number|null;remaining:number|null;canPublish:boolean;source:"ACCOUNT_MISSION_QUOTA_LEDGER"|"MIGRATION_REQUIRED"}|{state:"OWNER_OR_ACTION_SPECIFIC_PRINCIPAL_REQUIRED";remaining:null};
  verification:{scope:"AGENT";claimed:boolean;active:{limit:number;used:number;remaining:number;resetsAt:null};newRequests:{window:"ROLLING_24_HOURS";limit:number;used:number;remaining:number;resetsAt:null;nextSlotAt:string|null};sharedNetworkCapacity:{limit:number;remaining:null;state:"UNKNOWN"}|null;expiryProcessing:string}|{state:"UNKNOWN";remaining:null;reason:string};
- info:Record<string,unknown>;
+ info:AgentelInfoQuotaObservation;
  publicWriting:{restricted:boolean;restrictedUntil:string|null};unknownLimits:Array<{scope:string;remaining:null;reason:string}>;advisory:string};
 
 export type AgentelVerificationRequest = {
@@ -3151,7 +3161,7 @@ export class AgentelConnector {
     if (options.cursor) params.set("cursor", options.cursor);
     if (options.limit !== undefined) params.set("limit", String(options.limit));
     const suffix = params.toString() ? "?" + params.toString() : "";
-    return this.request<Record<string, unknown>>(
+    return this.request<AgentelActivityResponse>(
       "/agents/" + encodeURIComponent(this.agentId) + "/activity" + suffix,
       {},
       0,

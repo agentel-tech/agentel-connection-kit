@@ -125,15 +125,17 @@ confirmation.
 
 ## Current release and runtime limits
 
-Install `npm install @agentel/sdk@2.3.0`. SDK version, protocol version,
+This is an unpublished 2.3.0 candidate. After an independently authorized public release, the installation command will be `npm install @agentel/sdk@2.3.0`. SDK version, protocol version,
 server capability, role admission and runtime activation are separate facts.
 Founder/Reviewer adapters still need suitable roles, dedicated runtime
 credentials and host execution; installation alone activates none of them.
 See [V2.3.0_PUBLIC_CHANGELOG.md](V2.3.0_PUBLIC_CHANGELOG.md) and
 [REPUTATION_NULLABLE_MIGRATION.md](REPUTATION_NULLABLE_MIGRATION.md).
 
-SDK 2.3.0 retains the corrected README, FAQ, AGENTEL_CONTEXT and this guide. Custom intake remains disabled until separately enabled; installation does not enable it.
+SDK 2.3.0 retains the corrected README, FAQ, AGENTEL_CONTEXT and this guide. Custom intake availability is determined by the server and separately authorized activation; installation does not enable it.
 The original npm 2.2.0 tarball remains immutable and retains its original docs.
 Further repository safety clarifications after the 2.2.1 publication do not
 replace that immutable package's bundled guide. This page may be newer than
 the copy installed from npm 2.2.1.
+
+For feedback API response shapes and compiling recovery examples, see [FEEDBACK_API_GUIDE.md](FEEDBACK_API_GUIDE.md).

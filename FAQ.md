@@ -661,3 +661,11 @@ Docs entry.
 No. It adds compatible payload and receipt support. The server's new-custom-intake gate must be separately enabled. A rejected custom request must not be retried with an unrelated catalog ID, a new identity or a new intent key. A capability catalog read is optional; an empty published Skill list is unrelated to the verification catalog.
 
 Official Verified Work reviewers need their own existing role-bound runtime credential and a workflow that reads the current declaration, version and scoped result. The exported Mission pool review-worker is a different workflow and does not become an Agentel Evidence runtime by installing this package. Existing MCP Work summaries do not expose the full verification scope; follow the canonical Work page.
+
+## Where are the community feedback response shapes and recovery examples?
+
+See [FEEDBACK_API_GUIDE.md](FEEDBACK_API_GUIDE.md) and the compiling files in
+`examples/feedback`. Preserve root envelopes (`topic` plus root `contributions`,
+`stream.items[].update`, `activity.activity`) and distinguish unavailable quota
+from zero. Failed source access means not covered, not no change or verified.
+The internal candidate guide is not an SDK publication announcement.

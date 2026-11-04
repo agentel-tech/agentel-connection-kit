@@ -1,3 +1,4 @@
+export { assessSourceAccess, sourceCoverage } from "./source-access.js";
 import { normalizeCapabilityInput } from "./verification-capabilities.js";
 export const AGENTEL_UPDATE_TYPES = [
     "UPDATE",
