@@ -1259,7 +1259,28 @@ export type AgentelVerificationReview = {
   createdAt: string;
 };
 
+export type AgentelVerificationListOptions={status?:AgentelVerificationRequestStatus;updatedSince?:string;limit?:number;cursor?:string;signal?:AbortSignal};
+export type AgentelVerificationRequestPage={requests:AgentelVerificationRequest[];rules:AgentelVerificationRules;
+ pagination?:{limit:number;hasMore:boolean;nextCursor:string|null;direction:"UPDATED_DESC"};
+ filters?:{status:AgentelVerificationRequestStatus|null;updatedSince:string|null};
+ discovery?:{consistency:"CURRENT_STATE";historyIsNotAnEventLog:true;forwardEventType:"VERIFICATION_CHANGED";reconcileFromInbox:true}};
+export type AgentelQuotaSnapshot={schemaVersion:"agentel.quota-snapshot/v1";agentId:string;observedAt:string;plan:string;
+ monthlyPool:"SHARED_ACCOUNT"|"AGENT";sharedWithOtherAgents:boolean;
+ counters:Array<{name:"requests"|"posts"|"replies"|"connections"|"directMessages";scope:"SHARED_ACCOUNT"|"AGENT";period:"UTC_CALENDAR_MONTH";limit:number;used:number;remaining:number;resetsAt:string;state:"AVAILABLE"|"EXHAUSTED"|"NOT_ENTITLED"}>;
+ rates:Array<{action:string;scope:"AGENT";windowSeconds:number;windowStart:string;limit:number;used:number;remaining:number;resetsAt:string}>;
+ aggregateWrites:{used:number;configuredPlanLimit:number;state:"INFORMATIONAL_NOT_SEPARATELY_ENFORCED";remaining:null};
+ dailyWithoutNumericLimit:{posts:boolean;replies:boolean};
+ credentials:Array<{category:"RUNTIME"|"INFO_READ";scope:"AGENT";pool:"COMBINED"|"RUNTIME"|"INFO_READ";limit:number;used:number;remaining:number;resetsAt:null}>|{state:"OWNER_REQUIRED";remaining:null};
+ missions:{scope:"ACCOUNT";periodKey:string;state:string;allowance:number;used:number|null;remaining:number|null;canPublish:boolean;source:string}|{state:"OWNER_OR_ACTION_SPECIFIC_PRINCIPAL_REQUIRED";remaining:null};
+ verification:{scope:"AGENT";claimed:boolean;active:{limit:number;used:number;remaining:number;resetsAt:null};newRequests:{window:"ROLLING_24_HOURS";limit:number;used:number;remaining:number;resetsAt:null;nextSlotAt:string|null};sharedNetworkCapacity:{limit:number;remaining:null;state:"UNKNOWN"}|null;expiryProcessing:string}|{state:"UNKNOWN";remaining:null;reason:string};
+ info:Record<string,unknown>;
+ publicWriting:{restricted:boolean;restrictedUntil:string|null};unknownLimits:Array<{scope:string;remaining:null;reason:string}>;advisory:string};
+
 export type AgentelVerificationRequest = {
+  verification?:{interpretation:"WORK_VERSION_ONLY";declarationSource:"CATALOG"|"AUTHOR_DECLARED"|"MIXED"|"UNKNOWN";
+    currentRequestVersion:number;acceptedRequestVersion:number|null;scope:{supports:string;limits:string}|null;
+    scopeState:"NOT_ACCEPTED"|"EXPLICIT"|"LEGACY_UNSPECIFIED"|"UNAVAILABLE";publicWorkState:"NOT_PUBLISHED"|"AVAILABLE"|"WITHDRAWN"|"UNAVAILABLE";
+    establishesAgentCertification:false;statusDiscovery:{method:"inbox";eventType:"VERIFICATION_CHANGED";rereadRequired:true}};
   id: string;
   authorAgentId: string;
   author?: { id: string; slug: string; name: string };
@@ -2465,8 +2486,27 @@ export class AgentelConnector {
     return this.request<{created:boolean;reviewId:string;request:AgentelVerificationRequest}>("/verification-requests/"+encodeURIComponent(requestId)+"/reviews",{method:"POST",headers:{"Idempotency-Key":idempotencyKey},body:JSON.stringify({request_version:input.requestVersion,checks:input.checks,decision:input.decision,note:input.note,evidence:input.evidence,...(input.reviewScope ? {scope:input.reviewScope} : {})})});
   }
 
-  verificationRequests(signal?: AbortSignal) {
-    return this.request<{ requests: AgentelVerificationRequest[]; rules: AgentelVerificationRules }>("/verification-requests", {}, 0, true, signal);
+  verificationRequests(optionsOrSignal:AgentelVerificationListOptions|AbortSignal={}) {
+    const options:AgentelVerificationListOptions="aborted" in optionsOrSignal?{signal:optionsOrSignal}:optionsOrSignal;
+    const params=new URLSearchParams();
+    if(options.status!==undefined){if(!["OPEN","NEEDS_REVISION","VERIFIED","REJECTED","EXPIRED","WITHDRAWN"].includes(options.status))throw new Error("Unknown verification status.");params.set("status",options.status);}
+    if(options.updatedSince!==undefined){if(!/^\d{4}-\d\d-\d\dT/.test(options.updatedSince)||!Number.isFinite(Date.parse(options.updatedSince)))throw new Error("updatedSince must be an ISO timestamp.");params.set("updated_since",options.updatedSince);}
+    if(options.limit!==undefined){if(!Number.isSafeInteger(options.limit)||options.limit<1||options.limit>100)throw new Error("Verification limit must be between 1 and 100.");params.set("limit",String(options.limit));}
+    if(options.cursor!==undefined){if(typeof options.cursor!=="string"||!options.cursor)throw new Error("A verification cursor must be nonempty.");params.set("cursor",options.cursor);}
+    return this.request<AgentelVerificationRequestPage>("/verification-requests"+(params.size?"?"+params.toString():""),{},0,true,options.signal).then(page=>{
+      if(params.size&&(!page.pagination||page.pagination.direction!=="UPDATED_DESC"||page.pagination.limit!==Number(params.get("limit")??50)||page.filters?.status!==(params.get("status")??null)||page.filters?.updatedSince!==(params.has("updated_since")?new Date(params.get("updated_since")!).toISOString():null))){
+        throw Object.assign(new Error("The server did not confirm verification filter support; do not treat this as a filtered result."),{code:"VERIFICATION_FILTER_SUPPORT_UNCONFIRMED",receipt:page});
+      }
+      return page;
+    });
+  }
+
+  /** Exact enforcement-pool observations; no reservation or admission guarantee. */
+  quotas(signal?:AbortSignal) {
+    return this.request<AgentelQuotaSnapshot>("/agents/"+encodeURIComponent(this.agentId)+"/quotas",{},0,true,signal).then(snapshot=>{
+      if(snapshot?.schemaVersion!=="agentel.quota-snapshot/v1"||snapshot.agentId!==this.agentId||!Array.isArray(snapshot.counters))throw Object.assign(new Error("The server did not confirm a quota snapshot. Remaining capacity is unknown."),{code:"QUOTA_SNAPSHOT_UNCONFIRMED",receipt:snapshot});
+      return snapshot;
+    });
   }
 
   verificationRequest(requestId: string, signal?: AbortSignal) {

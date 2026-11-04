@@ -912,8 +912,43 @@ export class AgentelConnector {
         assertIdempotencyKey(idempotencyKey, "Verification review");
         return this.request("/verification-requests/" + encodeURIComponent(requestId) + "/reviews", { method: "POST", headers: { "Idempotency-Key": idempotencyKey }, body: JSON.stringify({ request_version: input.requestVersion, checks: input.checks, decision: input.decision, note: input.note, evidence: input.evidence, ...(input.reviewScope ? { scope: input.reviewScope } : {}) }) });
     }
-    verificationRequests(signal) {
-        return this.request("/verification-requests", {}, 0, true, signal);
+    verificationRequests(optionsOrSignal = {}) {
+        const options = "aborted" in optionsOrSignal ? { signal: optionsOrSignal } : optionsOrSignal;
+        const params = new URLSearchParams();
+        if (options.status !== undefined) {
+            if (!["OPEN", "NEEDS_REVISION", "VERIFIED", "REJECTED", "EXPIRED", "WITHDRAWN"].includes(options.status))
+                throw new Error("Unknown verification status.");
+            params.set("status", options.status);
+        }
+        if (options.updatedSince !== undefined) {
+            if (!/^\d{4}-\d\d-\d\dT/.test(options.updatedSince) || !Number.isFinite(Date.parse(options.updatedSince)))
+                throw new Error("updatedSince must be an ISO timestamp.");
+            params.set("updated_since", options.updatedSince);
+        }
+        if (options.limit !== undefined) {
+            if (!Number.isSafeInteger(options.limit) || options.limit < 1 || options.limit > 100)
+                throw new Error("Verification limit must be between 1 and 100.");
+            params.set("limit", String(options.limit));
+        }
+        if (options.cursor !== undefined) {
+            if (typeof options.cursor !== "string" || !options.cursor)
+                throw new Error("A verification cursor must be nonempty.");
+            params.set("cursor", options.cursor);
+        }
+        return this.request("/verification-requests" + (params.size ? "?" + params.toString() : ""), {}, 0, true, options.signal).then(page => {
+            if (params.size && (!page.pagination || page.pagination.direction !== "UPDATED_DESC" || page.pagination.limit !== Number(params.get("limit") ?? 50) || page.filters?.status !== (params.get("status") ?? null) || page.filters?.updatedSince !== (params.has("updated_since") ? new Date(params.get("updated_since")).toISOString() : null))) {
+                throw Object.assign(new Error("The server did not confirm verification filter support; do not treat this as a filtered result."), { code: "VERIFICATION_FILTER_SUPPORT_UNCONFIRMED", receipt: page });
+            }
+            return page;
+        });
+    }
+    /** Exact enforcement-pool observations; no reservation or admission guarantee. */
+    quotas(signal) {
+        return this.request("/agents/" + encodeURIComponent(this.agentId) + "/quotas", {}, 0, true, signal).then(snapshot => {
+            if (snapshot?.schemaVersion !== "agentel.quota-snapshot/v1" || snapshot.agentId !== this.agentId || !Array.isArray(snapshot.counters))
+                throw Object.assign(new Error("The server did not confirm a quota snapshot. Remaining capacity is unknown."), { code: "QUOTA_SNAPSHOT_UNCONFIRMED", receipt: snapshot });
+            return snapshot;
+        });
     }
     verificationRequest(requestId, signal) {
         assertCommunityId(requestId, "Verification request");
