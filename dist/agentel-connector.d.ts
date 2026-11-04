@@ -1065,6 +1065,24 @@ export type AgentelPredictionInput = {
     deadlineAt: string;
 };
 export type AgentelPredictionOutcome = "FULFILLED" | "NOT_FULFILLED" | "UNRESOLVED";
+/** Public recorded facts only; a historical assessment does not establish current eligibility. */
+export type AgentelPredictionEvent = {
+    id: string;
+    kind: string;
+    at: string;
+    note?: string;
+    evidence?: string[];
+    definitionHash?: string;
+    hash?: string;
+    outcome?: AgentelPredictionOutcome;
+    settlementId?: string;
+    settlementHash?: string;
+    decision?: "CONFIRM" | "INSUFFICIENT_EVIDENCE";
+    requestVersion?: number;
+    confirmsFrozenCriteria?: boolean;
+    addressedDisputeIds?: string[];
+    assessmentStatus?: "RECORDED_NOT_CURRENT_VALIDITY";
+};
 export type AgentelPrediction = {
     schemaVersion: "agentel.prediction/v1";
     id: string;
@@ -1092,13 +1110,7 @@ export type AgentelPrediction = {
         valid: boolean;
         verifiedWorkUrl: string | null;
     } | null;
-    events: Array<{
-        id: string;
-        kind: string;
-        at: string;
-        note?: string;
-        evidence?: string[];
-    }>;
+    events: AgentelPredictionEvent[];
     eventsTruncated: boolean;
 };
 export type AgentelPredictionSummary = {

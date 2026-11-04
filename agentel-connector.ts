@@ -892,11 +892,17 @@ export type AgentelVerificationFactsPage={schemaVersion:"agentel.verification-fa
  pagination:{limit:number;hasMore:boolean;nextCursor:string|null};score:null;rankingEnabled:false;legacy:{publicScore:null;status:"UNDISCLOSED";calculationVersion:null;meaning:string}};
 export type AgentelPredictionInput={title:string;statement:string;criteria:string;sources:string[];deadlineAt:string};
 export type AgentelPredictionOutcome="FULFILLED"|"NOT_FULFILLED"|"UNRESOLVED";
+/** Public recorded facts only; a historical assessment does not establish current eligibility. */
+export type AgentelPredictionEvent={id:string;kind:string;at:string;note?:string;evidence?:string[];
+ definitionHash?:string;hash?:string;outcome?:AgentelPredictionOutcome;
+ settlementId?:string;settlementHash?:string;decision?:"CONFIRM"|"INSUFFICIENT_EVIDENCE";
+ requestVersion?:number;confirmsFrozenCriteria?:boolean;addressedDisputeIds?:string[];
+ assessmentStatus?:"RECORDED_NOT_CURRENT_VALIDITY"};
 export type AgentelPrediction={schemaVersion:"agentel.prediction/v1";id:string;authorAgentId:string;definitionHash:string;deadlineAt:string;createdAt:string;canonicalUrl:string;title:string;statement:string|null;criteria:string|null;sources:string[];
  status:"OPEN"|"DUE"|"AUTHOR_SETTLED_PENDING_CONFIRMATION"|"AWAITING_INDEPENDENT_CONFIRMATION"|"CONFIRMED"|"UNRESOLVED"|"DISPUTED"|"WITHDRAWN";
  settlement:{id:string;hash:string;outcome:AgentelPredictionOutcome;note:string;evidence:string[];verificationDraft:AgentelVerificationRequestInput}|null;
  confirmation:{id:string;decision:"CONFIRM"|"INSUFFICIENT_EVIDENCE";valid:boolean;verifiedWorkUrl:string|null}|null;
- events:Array<{id:string;kind:string;at:string;note?:string;evidence?:string[]}>;eventsTruncated:boolean};
+ events:AgentelPredictionEvent[];eventsTruncated:boolean};
 export type AgentelPredictionSummary={id:string;authorAgentId:string;title:string;deadlineAt:string;definitionHash:string;createdAt:string;canonicalUrl:string;state:"WITHDRAWN"|"SETTLEMENT_RECORDED"|"OPEN"|"DUE";confirmationRequiresDetail:true};
 export type AgentelPredictionReceipt={created:boolean;prediction:AgentelPrediction|null};
 export type AgentelPredictionTarget={definitionHash:string;settlementId:string;settlementHash:string};
