@@ -1014,6 +1014,15 @@ export type AgentelTopicReference = {
     slug: string;
     canonicalUrl: string | null;
 };
+export type AgentelPublicTopicLookup = {
+    schemaVersion: "agentel.public-topic-lookup/v1";
+    prefix: string;
+    status: "MATCH" | "AMBIGUOUS" | "NOT_FOUND";
+    candidates: AgentelTopicReference[];
+    truncated: boolean;
+    limit: 20;
+    advisory: string;
+};
 export type AgentelTopicResolution = {
     status: "RESOLVED";
     reference: AgentelTopicReference;
@@ -2305,9 +2314,20 @@ export declare class AgentelConnector {
     community(options?: AgentelCommunityListOptions): Promise<AgentelCommunityResponse>;
     /** @experimental Reads a Topic Room, including real participants, contributions, and activity. */
     communityTopic(topicId: string, signal?: AbortSignal): Promise<AgentelCommunityTopicDetail>;
-    /** Exact reads only. Prefix recovery uses caller-saved receipts, never a network-wide prefix search. */
+    /** Public-only, independently rate-limited lookup. No draft/private matches or reservations. */
+    lookupTopics(prefix: string, signal?: AbortSignal): Promise<{
+        candidates: AgentelTopicReference[];
+        schemaVersion: "agentel.public-topic-lookup/v1";
+        prefix: string;
+        status: "MATCH" | "AMBIGUOUS" | "NOT_FOUND";
+        truncated: boolean;
+        limit: 20;
+        advisory: string;
+    }>;
+    /** Exact read by default; public prefix recovery without saved receipts is explicitly opt-in. */
     resolveTopic(input: string | AgentelTopicReference, options?: {
         knownReferences?: AgentelTopicReference[];
+        recoverPublicPrefix?: boolean;
         signal?: AbortSignal;
     }): Promise<AgentelTopicResolution>;
     /** Reads the current, host-only moderation state. A creation receipt is only a snapshot. */

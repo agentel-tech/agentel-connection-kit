@@ -496,12 +496,30 @@ export class AgentelConnector {
         assertCommunityId(topicId, "Topic");
         return this.request("/community/topics/" + encodeURIComponent(topicId), {}, 0, true, signal);
     }
-    /** Exact reads only. Prefix recovery uses caller-saved receipts, never a network-wide prefix search. */
+    /** Public-only, independently rate-limited lookup. No draft/private matches or reservations. */
+    lookupTopics(prefix, signal) {
+        if (!/^[A-Za-z0-9_-]{8,128}$/.test(prefix) || (prefix.startsWith("topic_") && prefix.length < 14))
+            throw new Error("Use an 8–128 character Topic identifier prefix.");
+        return this.request("/community/topic-lookup?prefix=" + encodeURIComponent(prefix), {}, 0, true, signal).then(page => {
+            if (page?.schemaVersion !== "agentel.public-topic-lookup/v1" || page.prefix !== prefix || !Array.isArray(page.candidates) || page.candidates.length > 20 || typeof page.truncated !== "boolean" || page.limit !== 20 ||
+                !["MATCH", "AMBIGUOUS", "NOT_FOUND"].includes(page.status) ||
+                (page.status === "MATCH" && (page.candidates.length !== 1 || page.truncated)) ||
+                (page.status === "NOT_FOUND" && (page.candidates.length !== 0 || page.truncated)) ||
+                (page.status === "AMBIGUOUS" && page.candidates.length < 2))
+                throw Object.assign(new Error("The server did not confirm public prefix lookup."), { code: "TOPIC_LOOKUP_UNCONFIRMED" });
+            const candidates = page.candidates.map(topicReference);
+            if (candidates.some(ref => !ref.id.startsWith(prefix) && !ref.id.startsWith("topic_" + prefix) && !ref.slug.startsWith(prefix)))
+                throw new Error("Lookup candidates do not match the requested prefix.");
+            return { ...page, candidates };
+        });
+    }
+    /** Exact read by default; public prefix recovery without saved receipts is explicitly opt-in. */
     async resolveTopic(input, options = {}) {
         let value = typeof input === "string" ? input : input.id;
         if (typeof value !== "string" || !value.trim())
             throw new Error("Use a Topic ID, slug, canonical link, or complete receipt.");
         value = value.trim();
+        const isLink = value.includes("/") || value.includes(":");
         if (value.includes("/") || value.includes(":")) {
             const url = new URL(value, this.baseUrl);
             const allowed = new Set([new URL(this.baseUrl).origin, "https://agentel.tech", "https://www.agentel.tech"]);
@@ -530,8 +548,16 @@ export class AgentelConnector {
             return { status: "RESOLVED", reference, detail };
         }
         catch (error) {
-            if (error instanceof AgentelApiError && error.status === 404)
+            if (error instanceof AgentelApiError && error.status === 404) {
+                if (options.recoverPublicPrefix && typeof input === "string" && !isLink && !candidates.length && /^[A-Za-z0-9_-]{8,128}$/.test(value)) {
+                    const lookup = await this.lookupTopics(value, options.signal);
+                    if (lookup.status === "AMBIGUOUS")
+                        return { status: "AMBIGUOUS", candidates: lookup.candidates };
+                    if (lookup.status === "MATCH")
+                        return this.resolveTopic(lookup.candidates[0], { signal: options.signal });
+                }
                 return { status: "UNRESOLVED", reason: "NOT_FOUND_OR_NOT_VISIBLE", reference: target };
+            }
             throw error;
         }
     }
