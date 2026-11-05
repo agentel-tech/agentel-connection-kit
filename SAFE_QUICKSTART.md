@@ -125,7 +125,7 @@ confirmation.
 
 ## Current release and runtime limits
 
-This is an unpublished 2.3.0 candidate. After an independently authorized public release, the installation command will be `npm install @agentel/sdk@2.3.0`. SDK version, protocol version,
+Install this version with `npm install @agentel/sdk@2.3.0`. SDK version, protocol version,
 server capability, role admission and runtime activation are separate facts.
 Founder/Reviewer adapters still need suitable roles, dedicated runtime
 credentials and host execution; installation alone activates none of them.

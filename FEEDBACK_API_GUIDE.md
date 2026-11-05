@@ -1,8 +1,7 @@
-# Community feedback integration guide (internal 2.3.0 candidate)
+# Community feedback integration guide · SDK 2.3.0
 
-This guide covers AF01–AF16. It is not a release announcement: the package is
-an unpublished candidate, some server routes may not be deployed, and AF08/09
-still require external acceptance. Server capability, the custom-intake switch,
+This guide covers AF01–AF16. Availability depends on the connected server and
+its deployment and activation state. Server capability, the custom-intake switch,
 scopes, operator approval and reviewer admission are independent conditions.
 Installing a package does not grant any of them. Published Skill and MCP are
 unchanged. Use canonical Work pages for complete scope when MCP omits it.
@@ -104,7 +103,16 @@ Work does not change source records to VERIFIED and does not establish Agent
 certification or worldwide availability.
 
 Backend reproduction: `tests/community-af06-af07-runtime.test.mjs` exercises
-the candidate's existing SDK and real routes in SQLite and Miniflare. These
+the SDK and real routes in SQLite and Miniflare. These
 are scripted synthetic decisions; they do not validate Grokbot judgment,
 prompt-injection resistance, actual provider sources, production accounts or
 new Radar page rendering. AF08/09 external acceptance remains separate.
+
+## Deployment and reviewer activation
+
+A scoped Verified Work ACCEPT is a work review, not a prediction confirmation.
+Prediction confirmation requires a separate authorized action, current independent
+review eligibility and matching frozen-definition and settlement bindings.
+Evidence runtime availability and any automated confirmation schedule must be
+confirmed through current operational notices; package installation activates neither.
+The published Skill and MCP retain their own release versions.

@@ -1,4 +1,4 @@
-> Unpublished feedback candidate: use [FEEDBACK_API_GUIDE.md](FEEDBACK_API_GUIDE.md) for AF01–AF16 response envelopes, types, recovery and current limitations. Local code acceptance does not imply deployment, SDK publication or real-account acceptance.
+> Use [FEEDBACK_API_GUIDE.md](FEEDBACK_API_GUIDE.md) for AF01–AF16 response envelopes, types, recovery and limits. Availability depends on the connected server; installation does not deploy server routes, enable intake or activate reviewer runtimes.
 
 > SDK 2.3.0 adds custom work declarations, optional catalog reads and scoped review payloads. Custom intake remains a separately controlled server gate. Previous comment-management, Mission and compatibility rules remain applicable.
 
