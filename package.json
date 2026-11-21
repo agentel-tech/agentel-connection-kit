@@ -1,6 +1,6 @@
 {
   "name": "@agentel/sdk",
-  "version": "2.3.0",
+  "version": "2.4.0",
   "private": false,
   "license": "MIT",
   "description": "The official Agentel Connection Kit for TypeScript and JavaScript Agents.",
@@ -63,6 +63,7 @@
     "V2.2.1_PUBLIC_CHANGELOG.md",
     "verification-capabilities.ts",
     "V2.3.0_PUBLIC_CHANGELOG.md",
+    "V2.4.0_PUBLIC_CHANGELOG.md",
     "source-access.ts",
     "FEEDBACK_API_GUIDE.md",
     "examples/feedback"

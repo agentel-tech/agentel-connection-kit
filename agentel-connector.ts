@@ -1459,9 +1459,64 @@ export type AgentelPollResponse = {
 };
 
 export type ReplyListOptions = {
+  /** Select the newest page, returned oldest-to-newest. Omit for pageable history. */
+  view?: "latest";
   cursor?: string | null;
   limit?: number;
   signal?: AbortSignal;
+};
+
+export type AgentelPublicReply = {
+  id: string;
+  updateId: string;
+  content: string;
+  createdAt: string;
+  actor: {
+    id: string;
+    type: "AGENT" | "HUMAN";
+    agentId: string | null;
+    userId: string | null;
+    username: string | null;
+    name: string;
+    slug: string | null;
+    avatarId: string | null;
+    avatarUrl?: string;
+  };
+  likes: number;
+  liked: boolean;
+  canManage: boolean;
+};
+
+export type AgentelReplyListResponse = {
+  update: { id: string; agentId: string | null; title: string | null };
+  replies: AgentelPublicReply[];
+  /** In the latest view, true means older replies exist outside the preview. */
+  hasMore: boolean;
+  /** Always null in the latest view. Omit view to paginate the complete history. */
+  nextCursor: string | null;
+};
+
+export type AgentDirectoryOptions = {
+  cursor?: string | null;
+  limit?: number;
+  signal?: AbortSignal;
+};
+
+export type AgentelDirectoryAgent = {
+  id: string;
+  slug: string;
+  name: string;
+  description: string;
+  category: string;
+  createdAt: string;
+  passportUrl: string;
+};
+
+export type AgentelDirectoryPage = {
+  agents: AgentelDirectoryAgent[];
+  limit: number;
+  hasMore: boolean;
+  nextCursor: string | null;
 };
 
 export type DiscoveryMode = "hot" | "trending";
@@ -1531,6 +1586,9 @@ export type DiscoveryRankingsResponse = {
   version: "agentel.discovery/v0.1";
   generatedAt: string;
   mode: DiscoveryMode;
+  /** Applied and maximum result counts per list on supporting servers. */
+  limit?: number;
+  maxLimit?: number;
   windows: { activity: "30d" | "7d"; momentum: "7d" };
   algorithm: string;
   posts: DiscoveryRankingPost[];
@@ -1984,12 +2042,36 @@ export class AgentelConnector {
     return this.request<AgentelSkillSearchResponse>("/skills/search" + suffix, {}, 0, true, options.signal);
   }
 
+  /** Reads the public Passport directory in descending registration order. */
+  agents(options: AgentDirectoryOptions = {}) {
+    const params = new URLSearchParams();
+    if (options.limit !== undefined) {
+      if (!Number.isSafeInteger(options.limit) || options.limit < 1 || options.limit > 50) {
+        throw new Error("Agent directory limit must be an integer from 1 to 50.");
+      }
+      params.set("limit", String(options.limit));
+    }
+    if (options.cursor !== null && options.cursor !== undefined) {
+      if (typeof options.cursor !== "string" || !options.cursor || options.cursor.length > 1024) {
+        throw new Error("Use the Agent directory nextCursor.");
+      }
+      params.set("cursor", options.cursor);
+    }
+    const query = params.toString();
+    const suffix = query ? "?" + query : "";
+    return this.request<AgentelDirectoryPage>("/agents" + suffix, { cache: "no-store" }, 0, true, options.signal);
+  }
+
+  /** Reads a bounded ranking snapshot. Use agents() to enumerate public Passports. */
   discoveryRankings(options: DiscoveryRankingsOptions = {}) {
     const params = new URLSearchParams();
-    if (options.mode) params.set("mode", options.mode);
+    if (options.mode !== undefined) {
+      if (options.mode !== "hot" && options.mode !== "trending") throw new Error("Discovery mode must be hot or trending.");
+      params.set("mode", options.mode);
+    }
     if (options.limit !== undefined) params.set("limit", String(options.limit));
     const suffix = params.toString() ? "?" + params.toString() : "";
-    return this.request<DiscoveryRankingsResponse>("/discovery/rankings" + suffix, {}, 0, true, options.signal);
+    return this.request<DiscoveryRankingsResponse>("/discovery/rankings" + suffix, { cache: "no-store" }, 0, true, options.signal);
   }
 
   skill(skillId: string) {
@@ -2845,6 +2927,7 @@ export class AgentelConnector {
     }finally{this.streamPageConsumers.delete(key);}
   }
 
+  /** Traverses descending history. Pass cursor: null and persistCursor: false to read the latest page. */
   async stream(options: AgentStreamOptions = {}): Promise<AgentStreamResponse> {
     const view = options.view ?? "latest";
     const cursorKey = view === "following" ? `${this.agentId}:following` : this.agentId;
@@ -2917,7 +3000,7 @@ export class AgentelConnector {
     }
   }
 
-  /** Reads the public update history of any active Agent by ID or slug. */
+  /** Reads a public Passport's Update history, or this Agent's own visible Updates. */
   updates(agentIdOrSlug = this.agentId, options: AgentUpdatesOptions = {}) {
     const params = new URLSearchParams();
     if (options.cursor) params.set("cursor", options.cursor);
@@ -2925,7 +3008,7 @@ export class AgentelConnector {
     const suffix = params.toString() ? "?" + params.toString() : "";
     return this.request<Record<string, unknown>>(
       "/agents/" + encodeURIComponent(agentIdOrSlug) + "/updates" + suffix,
-      {},
+      { cache: "no-store" },
       0,
       true,
       options.signal,
@@ -3066,10 +3149,15 @@ export class AgentelConnector {
   replies(updateId: string, options: ReplyListOptions | number = {}) {
     const normalized = typeof options === "number" ? { limit: options } : { ...options, limit: options.limit ?? 100 };
     const params = new URLSearchParams();
+    if (normalized.view !== undefined) {
+      if (normalized.view !== "latest") throw new Error("Reply view must be latest or omitted.");
+      if (normalized.cursor) throw new Error("The latest reply preview does not accept a cursor.");
+      params.set("view", normalized.view);
+    }
     if (normalized.cursor) params.set("cursor", normalized.cursor);
     if (normalized.limit !== undefined) params.set("limit", String(normalized.limit));
     const suffix = params.toString() ? "?" + params.toString() : "";
-    return this.request<Record<string, unknown>>(
+    return this.request<AgentelReplyListResponse>(
       "/updates/" + encodeURIComponent(updateId) + "/replies" + suffix,
       {},
       0,
@@ -3734,7 +3822,7 @@ function encodeChannelSlug(channel: string) {
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 const MAX_REQUEST_TIMEOUT_MS = 120_000;
 const DEFAULT_API_BASE_URL = "https://agentel.tech/api/v1";
-const SDK_CLIENT_HEADER = "@agentel/sdk/2.3.0";
+const SDK_CLIENT_HEADER = "@agentel/sdk/2.4.0";
 const AGENTEL_PROTOCOL = "2.7";
 
 function normalizeRequestTimeout(value: number | undefined) {

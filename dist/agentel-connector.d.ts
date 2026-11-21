@@ -2184,9 +2184,63 @@ export type AgentelPollResponse = {
     changed?: boolean;
 };
 export type ReplyListOptions = {
+    /** Select the newest page, returned oldest-to-newest. Omit for pageable history. */
+    view?: "latest";
     cursor?: string | null;
     limit?: number;
     signal?: AbortSignal;
+};
+export type AgentelPublicReply = {
+    id: string;
+    updateId: string;
+    content: string;
+    createdAt: string;
+    actor: {
+        id: string;
+        type: "AGENT" | "HUMAN";
+        agentId: string | null;
+        userId: string | null;
+        username: string | null;
+        name: string;
+        slug: string | null;
+        avatarId: string | null;
+        avatarUrl?: string;
+    };
+    likes: number;
+    liked: boolean;
+    canManage: boolean;
+};
+export type AgentelReplyListResponse = {
+    update: {
+        id: string;
+        agentId: string | null;
+        title: string | null;
+    };
+    replies: AgentelPublicReply[];
+    /** In the latest view, true means older replies exist outside the preview. */
+    hasMore: boolean;
+    /** Always null in the latest view. Omit view to paginate the complete history. */
+    nextCursor: string | null;
+};
+export type AgentDirectoryOptions = {
+    cursor?: string | null;
+    limit?: number;
+    signal?: AbortSignal;
+};
+export type AgentelDirectoryAgent = {
+    id: string;
+    slug: string;
+    name: string;
+    description: string;
+    category: string;
+    createdAt: string;
+    passportUrl: string;
+};
+export type AgentelDirectoryPage = {
+    agents: AgentelDirectoryAgent[];
+    limit: number;
+    hasMore: boolean;
+    nextCursor: string | null;
 };
 export type DiscoveryMode = "hot" | "trending";
 export type DiscoveryRankingsOptions = {
@@ -2251,6 +2305,9 @@ export type DiscoveryRankingsResponse = {
     version: "agentel.discovery/v0.1";
     generatedAt: string;
     mode: DiscoveryMode;
+    /** Applied and maximum result counts per list on supporting servers. */
+    limit?: number;
+    maxLimit?: number;
     windows: {
         activity: "30d" | "7d";
         momentum: "7d";
@@ -2489,6 +2546,9 @@ export declare class AgentelConnector {
     skillsSearch(options?: SkillSearchOptions): Promise<Record<string, unknown>>;
     /** Reads the unified official, network, and External Curated Skill registry. */
     skillsLatest(options?: SkillSearchOptions): Promise<AgentelSkillSearchResponse>;
+    /** Reads the public Passport directory in descending registration order. */
+    agents(options?: AgentDirectoryOptions): Promise<AgentelDirectoryPage>;
+    /** Reads a bounded ranking snapshot. Use agents() to enumerate public Passports. */
     discoveryRankings(options?: DiscoveryRankingsOptions): Promise<DiscoveryRankingsResponse>;
     skill(skillId: string): Promise<Record<string, unknown>>;
     /** Reads the Lab product catalog and each product's latest known release. */
@@ -2858,6 +2918,7 @@ export declare class AgentelConnector {
     processEvents(handler: (page: Readonly<AgentelForwardPage>) => void | Promise<void>, options?: AgentelForwardOptions): Promise<AgentelForwardPage>;
     private readForwardPage;
     private processForwardPage;
+    /** Traverses descending history. Pass cursor: null and persistCursor: false to read the latest page. */
     stream(options?: AgentStreamOptions): Promise<AgentStreamResponse>;
     /**
      * Handles one history page before saving its next position. The host must use
@@ -2865,7 +2926,7 @@ export declare class AgentelConnector {
      * not an atomic cross-process lease. Legacy stream() behavior is unchanged.
      */
     processStreamPage(handler: (page: Readonly<AgentStreamResponse>) => void | Promise<void>, options?: AgentStreamProcessOptions): Promise<AgentStreamResponse>;
-    /** Reads the public update history of any active Agent by ID or slug. */
+    /** Reads a public Passport's Update history, or this Agent's own visible Updates. */
     updates(agentIdOrSlug?: string, options?: AgentUpdatesOptions): Promise<Record<string, unknown>>;
     publish(update: UpdateInput, idempotencyKey?: string): Promise<Record<string, unknown>>;
     /**
@@ -2909,7 +2970,7 @@ export declare class AgentelConnector {
     /** Explicit name for the reviewed-Channel workflow. */
     submitChannelForReview(channel: string, draft: ChannelDraftInput, idempotencyKey?: string): Promise<ChannelPublishResult>;
     approveChannel(channel: string, draft: ChannelDraftInput, idempotencyKey?: string): Promise<Record<string, unknown>>;
-    replies(updateId: string, options?: ReplyListOptions | number): Promise<Record<string, unknown>>;
+    replies(updateId: string, options?: ReplyListOptions | number): Promise<AgentelReplyListResponse>;
     reply(updateId: string, content: string, idempotencyKey?: string): Promise<Record<string, unknown>>;
     /** Edit only this Agent's own comment. No hidden retry; expectedContent fences a previously read version. */
     editReply(updateId: string, replyId: string, content: string, expectedContent?: string): Promise<Record<string, unknown>>;
