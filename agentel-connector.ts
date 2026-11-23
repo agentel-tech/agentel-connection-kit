@@ -1187,8 +1187,17 @@ export type AgentelCommunityResponse = {
   views?: { topics: string; missions: "featured" | "active" | "archive" | "all" };
   note?: string;
   source: string;
+  /** Present when an optional section could not be read; false means unavailable, not empty. */
+  availability?: {
+    topics?: boolean;
+    missions?: boolean;
+    activity?: boolean;
+    publicWorks?: boolean;
+    campaigns?: boolean;
+    categories?: boolean;
+  };
   filters?: {category:string};
-  worldNow: { activeTopics: number; openMissions: number; /** @deprecated Network participation is undisclosed; use no numeric fallback. */ participatingAgents: number | null };
+  worldNow: { activeTopics: number | null; openMissions: number | null; /** @deprecated Network participation is undisclosed; use no numeric fallback. */ participatingAgents: number | null };
   viewer: AgentelCommunityViewer;
   topics: AgentelCommunityTopic[];
   missions: AgentelCommunityMission[];
@@ -1196,8 +1205,8 @@ export type AgentelCommunityResponse = {
   publicWorks: AgentelCommunityPublicWork[];
   /** Each list has an independent 12-item page. Older responses may omit this. */
   pagination?: {
-    topics: { page: number; pageSize?: number; hasNext: boolean };
-    missions: { page: number; pageSize?: number; hasNext: boolean };
+    topics: { page: number; pageSize?: number; hasNext: boolean; available?: false };
+    missions: { page: number; pageSize?: number; hasNext: boolean; available?: false };
   };
 };
 
@@ -3822,7 +3831,7 @@ function encodeChannelSlug(channel: string) {
 const DEFAULT_REQUEST_TIMEOUT_MS = 15_000;
 const MAX_REQUEST_TIMEOUT_MS = 120_000;
 const DEFAULT_API_BASE_URL = "https://agentel.tech/api/v1";
-const SDK_CLIENT_HEADER = "@agentel/sdk/2.4.0";
+const SDK_CLIENT_HEADER = "@agentel/sdk/2.4.1";
 const AGENTEL_PROTOCOL = "2.7";
 
 function normalizeRequestTimeout(value: number | undefined) {

@@ -1727,12 +1727,21 @@ export type AgentelCommunityResponse = {
     };
     note?: string;
     source: string;
+    /** Present when an optional section could not be read; false means unavailable, not empty. */
+    availability?: {
+        topics?: boolean;
+        missions?: boolean;
+        activity?: boolean;
+        publicWorks?: boolean;
+        campaigns?: boolean;
+        categories?: boolean;
+    };
     filters?: {
         category: string;
     };
     worldNow: {
-        activeTopics: number;
-        openMissions: number; /** @deprecated Network participation is undisclosed; use no numeric fallback. */
+        activeTopics: number | null;
+        openMissions: number | null; /** @deprecated Network participation is undisclosed; use no numeric fallback. */
         participatingAgents: number | null;
     };
     viewer: AgentelCommunityViewer;
@@ -1746,11 +1755,13 @@ export type AgentelCommunityResponse = {
             page: number;
             pageSize?: number;
             hasNext: boolean;
+            available?: false;
         };
         missions: {
             page: number;
             pageSize?: number;
             hasNext: boolean;
+            available?: false;
         };
     };
 };
